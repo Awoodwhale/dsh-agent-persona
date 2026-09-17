@@ -9,10 +9,10 @@ import { readFileSync } from 'node:fs'
 
 const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
 
-assert.ok(source.includes('MessageText,'), 'the transcript component is imported from the kit')
-assert.ok(source.includes('h(MessageText, { text })'), 'and used for message bodies')
-for (const workaround of ['splitMarkdown', 'escapeUnknownTags', 'SafeChunk', 'MarkdownText,']) {
-  assert.equal(source.includes(workaround), false, `${workaround} must not come back: the dialog renders like the chat page`)
+assert.ok(source.includes('MarkdownText,'), 'the kit renderer available to plugins is imported')
+assert.ok(source.includes('h(MarkdownText, { text: escapeUnknownTags(text) })'), 'and used on transcript-safe text')
+for (const workaround of ['MessageText,', 'splitMarkdown', 'SafeChunk']) {
+  assert.equal(source.includes(workaround), false, `${workaround} must not come back`)
 }
 assert.ok(source.includes('getDerivedStateFromError'), 'while a failed message still degrades to plain text instead of killing the page')
 
