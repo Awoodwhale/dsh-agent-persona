@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   windowed (`sessionHistory({id, offset, events})`) so the log is never read up front: the page shows what it
   got, reports 已显示 N 条, and only reads the next window when 继续加载 is pressed. Messages are capped at 4000
   characters. Picker rows carry a short session id and the session's age on the right.
+- The section header now matches the shipped settings pages exactly: an `<h2>` title at 18px/600, a 13px
+  `p` intro in the muted label colour, no leading icon (the count moved into the meta line). Measured side by
+  side against the official 「Agent 预设」 page in the same DOM: identical font size, weight and colour.
 - The page is titled with the Agent-preset glyph (the same one the settings shell uses for 「Agent 预设」); the
   settings **nav** icon itself is the shell's and cannot be set by a plugin — `settings.section` accepts only
   `id` / `order` / `label`, and the shell falls back to one generic glyph for every id it does not ship.
