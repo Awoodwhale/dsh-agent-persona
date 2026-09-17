@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- 跳到最新 kept a fixed four-message window, so a turn where the agent answered several times pushed the user's
+  question out of it. The tail now returns everything from the **last user input** onwards (bounded at 60
+  messages while walking).
+- A message whose Markdown failed to render fell back to plain text **as a whole**, which is what made some
+  bubbles show raw Markdown. Messages are now split into bounded Markdown-safe chunks (blank-line boundaries,
+  never inside a code fence) and each chunk renders on its own: one awkward chunk degrades with a visible note,
+  the rest of the message still renders.
+- `npm test` now also runs a small client-side suite (`test/client-helpers.test.mjs`) that lifts the client's pure
+  helpers out of the source and asserts the splitter is lossless and fence-safe.
+
 - 跳到最新 did nothing: the runtime forwarded a hand-written subset of the history options and dropped ,
   so the call degraded to a normal head read while the dialog labelled it as the tail. The forwarding is now an
   exported, asserted .

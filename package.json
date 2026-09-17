@@ -50,7 +50,7 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node test/personas.test.mjs",
+    "test": "node test/personas.test.mjs && node test/client-helpers.test.mjs",
     "check": "node --check lib/index.js && node --check lib/client.js"
   },
   "dsh": {

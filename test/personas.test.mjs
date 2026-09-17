@@ -256,25 +256,29 @@ assert.deepEqual(ptr.messages.map((m) => m.at), [2, 3], 'messages carry their ab
 const full = await collectSessionHistory(pagedCtx, 's2', { offset: ptr.messages[0].at, events: 1, maxChars: 100000 })
 assert.deepEqual(full.messages.map((m) => m.text), ['m2'], 'one event at that pointer is that one message')
 
-// tail mode walks to the end and hands back only the last exchange
+// tail mode walks to the end and hands back the last exchange (from the last user input)
+const exchange = [
+  msg('user/message', 'q1'), msg('assistant/message', 'a1'), msg('assistant/message', 'a2'),
+  msg('user/message', 'q2'), msg('assistant/message', 'a3'), msg('assistant/message', 'a4'),
+]
 const tailCtx = {
   get: (name) => (name === 'sessionPersistence'
     ? {
       open: async () => ({
         header: { cwd: WS, createdAt: 42 },
         events: [],
-        read: async (offset, length) => ({ events: many.slice(offset, offset + length), eventCount: many.length }),
+        read: async (offset, length) => ({ events: exchange.slice(offset, offset + length), eventCount: exchange.length }),
       }),
     }
     : undefined),
 }
-const tail = await collectSessionHistory(tailCtx, 't1', { tail: true, events: 2, keep: 3 })
+const tail = await collectSessionHistory(tailCtx, 't1', { tail: true, events: 2, keep: 2 })
 assert.equal(tail.tail, true, 'the result is marked as a tail read')
 assert.equal(tail.done, true, 'and it always reports itself complete')
 assert.equal(tail.nextOffset, null, 'there is nothing further to page to')
-assert.deepEqual(tail.messages.map((m) => m.text), ['m2', 'm3', 'm4'], 'only the last messages survive')
-assert.equal(tail.total, 5, 'while the total count still reflects the whole conversation')
-assert.equal(tail.scanned, 5, 'and the walk reports how many events it read')
+assert.deepEqual(tail.messages.map((m) => m.text), ['q2', 'a3', 'a4'], 'the last user input survives even when the agent answered several times')
+assert.equal(tail.total, 6, 'while the total count still reflects the whole conversation')
+assert.equal(tail.scanned, 6, 'and the walk reports how many events it read')
 assert.equal(tail.cwd, WS, 'the header still comes from the first window')
 
 // clipping a message must not leave an open code fence behind
