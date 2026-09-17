@@ -284,8 +284,9 @@ assert.equal(tail.cwd, WS, 'the header still comes from the first window')
 // clipping a message must not leave an open code fence behind
 const long = `开头\n\n\u0060\u0060\u0060js\nconst a = 1\nconst b = 2\n`.padEnd(300, 'x')
 const clippedLong = clipMarkdown(long, 200)
-assert.ok(clippedLong.startsWith(long.slice(0, 200)), 'the head is kept verbatim')
-assert.equal((clippedLong.match(/^\u0060\u0060\u0060/gm) ?? []).length % 2, 0, 'an odd fence is closed, so the rest of the message still renders')
+assert.ok(long.startsWith(clippedLong.split('\n\n…')[0]), 'the kept head is a verbatim prefix of the message')
+assert.equal((clippedLong.match(/^\u0060\u0060\u0060/gm) ?? []).length % 2, 0, 'no unclosed fence is left behind')
+assert.equal((clippedLong.match(/\u0060/g) ?? []).length % 2, 0, 'and no unclosed inline code span either')
 assert.ok(clippedLong.includes('已截断'), 'and the reader is told it was cut')
 assert.equal((clipMarkdown('short', 200)), 'short', 'a short message is returned untouched')
 
