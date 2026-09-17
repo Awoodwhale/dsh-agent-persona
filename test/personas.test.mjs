@@ -16,7 +16,7 @@ const storePath = join(stateDir, 'personas.json')
 const heartbeatPath = join(stateDir, 'state.json')
 
 const mod = await import(new URL('../lib/index.js', import.meta.url).href)
-const { applyPersonaMode, clipMarkdown, collectSessionHistory, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
+const { applyPersonaMode, clipMarkdown, collectSessionHistory, historyOptions, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
 
 const WS = '/tmp/ws/web-app'
 const OTHER = '/tmp/ws/docs'
@@ -244,6 +244,11 @@ const mixedCtx = { get: (name) => (name === 'sessionPersistence' ? { open: async
 const mixed = await collectSessionHistory(mixedCtx, 's5', {})
 assert.deepEqual(mixed.messages.map((m) => m.text), ['我真实的输入', '没有 source 的输入视为用户输入'], 'injected user-side events are hidden')
 assert.equal(mixed.skipped, 2, 'and counted, so the page can say so')
+
+// every option the client sends must reach the reader
+assert.deepEqual(historyOptions({ id: 'x', tail: true, keep: 4, events: 2000 }), { offset: undefined, events: 2000, maxChars: undefined, tail: true, keep: 4 })
+assert.equal(historyOptions({ tail: 'yes' }).tail, false, 'tail is only true when it is literally true')
+assert.equal(historyOptions(undefined).tail, false, 'and a missing payload is still safe')
 
 // every message says where it lives, and that pointer re-reads it in full
 const ptr = await collectSessionHistory(pagedCtx, 's2', { offset: 2, events: 2 })
