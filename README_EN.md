@@ -58,8 +58,10 @@ Hit **新建人设** → pick workspaces or sessions under 「用在哪些地方
   (a session) — and then you pick the actual target from a dropdown. The two types are mutually exclusive: flip
   a row from workspace to session and that row's value is cleared.
 - The workspace dropdown comes from DSH's workspace list (with session counts); the session dropdown lists
-  DSH's sessions newest-first with title, working directory and a "3 minutes ago" stamp — so you do not need to
-  know what a session id is, you recognise the session by its title.
+  DSH's sessions newest-first with **title**, working directory and a "3 minutes ago" stamp — so you do not need
+  to know what a session id is, you recognise the session by its title. Titles come from DSH's own session
+  projections (the same text the sidebar shows); a session that has no title yet is labelled with its first
+  prompt (or its latest one) — all three values come out of a **single** file read, never a session log.
 - For prefix / regex / substring matching, choose **自己输入…** and the row becomes a text input.
 - **Order is priority.** Reordering lives in the card's `⋯` menu (move up / move down); the first match from the top wins.
 - **A persona with no rows is the default persona**: it takes every session the personas above did not claim.

@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`sessionHistory`) before pointing a persona at it.
 - The scope pickers can go back from 「自己输入…」 to the list, and the match mode only appears in that
   manual mode.
+- Session entries in the picker are labelled with their DSH title, and with the session's first prompt (or
+  its latest prompt) when no title exists yet — all three come out of a **single read** of DSH's projection
+  cache. The dropdown never touches a session log: those are 2.6x-5.8x larger and zstd-compressed
+  append-only files that cannot be seeked.
 
 
 ### Added

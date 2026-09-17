@@ -105,34 +105,20 @@ writeFileSync(join(home, 'storages', 'session_projcache', 'sessions', 'f1.json')
 const fileCtx = { get: (name) => (name === 'sessionPersistence' ? { list: () => [{ header: { id: 'f1', cwd: WS, createdAt: 11 } }] } : undefined) }
 assert.equal((await collectTargets(fileCtx, {})).sessions[0].title, '文件标题', 'the projection file is read when the service is absent')
 
-let coldReads = 0
-const manyIds = Array.from({ length: 15 }, (_, i) => `c${i}`)
-const coldTitleCtx = { get: (name) => (name === 'sessionPersistence' ? {
-  list: () => manyIds.map((id, i) => ({ header: { id, cwd: WS, createdAt: i } })),
-  open: async () => {
-    coldReads += 1
-    return { header: {}, events: [{ type: 'user/message', data: { content: [{ text: '帮我看看这个奇怪的构建报错到底是哪里来的，我已经排查了两小时也没找到原因，怀疑是依赖版本冲突而且只在 CI 上复现本地怎么都跑不出来' }] } }] }
-  },
-} : undefined) }
-const derived = await collectTargets(coldTitleCtx, {})
-assert.match(derived.sessions[0].title, /^帮我看看这个奇怪的构建报错/, 'the first user message is the last resort')
-assert.ok(derived.sessions[0].title.endsWith('…'), 'and it is truncated')
-assert.equal(coldReads, 12, 'only the newest 12 sessions pay for a read')
-const readsSoFar = coldReads
-await collectTargets(coldTitleCtx, {})
-assert.equal(coldReads, readsSoFar, 'a derived title is cached for the process')
+// a session with no title falls back to a prompt — from the SAME projection read, never the log
+writeFileSync(join(home, 'storages', 'session_projcache', 'sessions', 'p2.json'), JSON.stringify({
+  record: { rows: { titleInput: { val: { first: { text: '帮我看看这个奇怪的构建报错' } } } } },
+}))
+const promptCtx = { get: (name) => (name === 'sessionPersistence' ? { list: () => [{ header: { id: 'p2', cwd: WS, createdAt: 12 } }] } : undefined) }
+assert.equal((await collectTargets(promptCtx, {})).sessions[0].title, '帮我看看这个奇怪的构建报错', 'the first prompt labels a session that has no title yet')
 
-// the projection pass is capped: only the newest slice pays for a title read
-const projIds = Array.from({ length: 20 }, (_, i) => `pg${i}`)
-for (const [i, id] of projIds.entries()) {
-  writeFileSync(join(home, 'storages', 'session_projcache', 'sessions', `${id}.json`), JSON.stringify({ record: { rows: { title: { val: `标题 ${i}` } } } }))
-}
-const cappedCtx = { get: (name) => (name === 'sessionPersistence' ? { list: () => projIds.map((id, i) => ({ header: { id, cwd: WS, createdAt: i } })) } : undefined) }
-const cappedTargets = await collectTargets(cappedCtx, {})
-const titled = cappedTargets.sessions.filter((session) => session.title !== undefined)
-assert.equal(titled.length, 16, 'only the newest 16 sessions read a projection file')
-assert.equal(cappedTargets.sessions[0].title, '标题 19', 'the newest one is titled')
-assert.equal(cappedTargets.sessions[19].title, undefined, 'the oldest ones are left to the picker id+time label')
+writeFileSync(join(home, 'storages', 'session_projcache', 'sessions', 'p3.json'), JSON.stringify({
+  record: { rows: { turnOutline: { val: { turns: [{ prompt: '开始' }, { prompt: '最后我问的是这个很长的问题，长到需要被截断处理掉多余的部分才行，否则下拉框里会撑爆显示不下，所以这里必须做截断处理才行' }] } } } },
+}))
+const latestCtx = { get: (name) => (name === 'sessionPersistence' ? { list: () => [{ header: { id: 'p3', cwd: WS, createdAt: 13 } }] } : undefined) }
+const latestLabel = (await collectTargets(latestCtx, {})).sessions[0].title
+assert.match(latestLabel, /^最后我问的是这个很长的问题/, 'the latest prompt is used when nothing else exists')
+assert.ok(latestLabel.endsWith('…') && latestLabel.length === 49, 'and it is trimmed to 48 characters plus an ellipsis')
 
 const bareWarnings = []
 const bare = await collectTargets({ get: () => undefined }, { warn: (message) => bareWarnings.push(message) })
