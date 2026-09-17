@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2026-09-17
 
+### Changed
+
+- The per-message text cap is 1000 characters (clipping stays markdown-safe), and 跳到最新 no longer appends the
+  rest of the conversation: it walks to the end and replaces the view with the last exchange only, so one click
+  answers "what were we just talking about". 从头看 returns to the sequential view, whose footer states that it
+  reads from the beginning.
 ### Fixed
 
 - **Empty sessions are no longer offered.** A session created with a preset but never typed into

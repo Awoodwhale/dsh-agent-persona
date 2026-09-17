@@ -245,6 +245,27 @@ const mixed = await collectSessionHistory(mixedCtx, 's5', {})
 assert.deepEqual(mixed.messages.map((m) => m.text), ['我真实的输入', '没有 source 的输入视为用户输入'], 'injected user-side events are hidden')
 assert.equal(mixed.skipped, 2, 'and counted, so the page can say so')
 
+// tail mode walks to the end and hands back only the last exchange
+const tailCtx = {
+  get: (name) => (name === 'sessionPersistence'
+    ? {
+      open: async () => ({
+        header: { cwd: WS, createdAt: 42 },
+        events: [],
+        read: async (offset, length) => ({ events: many.slice(offset, offset + length), eventCount: many.length }),
+      }),
+    }
+    : undefined),
+}
+const tail = await collectSessionHistory(tailCtx, 't1', { tail: true, events: 2, keep: 3 })
+assert.equal(tail.tail, true, 'the result is marked as a tail read')
+assert.equal(tail.done, true, 'and it always reports itself complete')
+assert.equal(tail.nextOffset, null, 'there is nothing further to page to')
+assert.deepEqual(tail.messages.map((m) => m.text), ['m2', 'm3', 'm4'], 'only the last messages survive')
+assert.equal(tail.total, 5, 'while the total count still reflects the whole conversation')
+assert.equal(tail.scanned, 5, 'and the walk reports how many events it read')
+assert.equal(tail.cwd, WS, 'the header still comes from the first window')
+
 // clipping a message must not leave an open code fence behind
 const long = `开头\n\n\u0060\u0060\u0060js\nconst a = 1\nconst b = 2\n`.padEnd(300, 'x')
 const clippedLong = clipMarkdown(long, 200)
@@ -374,7 +395,7 @@ assert.ok(warnings.some((message) => /not a persona store/.test(message)))
 
 console.log(JSON.stringify({
   ok: true,
-  checks: 117,
+  checks: 129,
   section: { name: section.name, order: section.order },
   stateDir,
 }))
