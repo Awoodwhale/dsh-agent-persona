@@ -122,6 +122,18 @@ const readsSoFar = coldReads
 await collectTargets(coldTitleCtx, {})
 assert.equal(coldReads, readsSoFar, 'a derived title is cached for the process')
 
+// the projection pass is capped: only the newest slice pays for a title read
+const projIds = Array.from({ length: 20 }, (_, i) => `pg${i}`)
+for (const [i, id] of projIds.entries()) {
+  writeFileSync(join(home, 'storages', 'session_projcache', 'sessions', `${id}.json`), JSON.stringify({ record: { rows: { title: { val: `标题 ${i}` } } } }))
+}
+const cappedCtx = { get: (name) => (name === 'sessionPersistence' ? { list: () => projIds.map((id, i) => ({ header: { id, cwd: WS, createdAt: i } })) } : undefined) }
+const cappedTargets = await collectTargets(cappedCtx, {})
+const titled = cappedTargets.sessions.filter((session) => session.title !== undefined)
+assert.equal(titled.length, 16, 'only the newest 16 sessions read a projection file')
+assert.equal(cappedTargets.sessions[0].title, '标题 19', 'the newest one is titled')
+assert.equal(cappedTargets.sessions[19].title, undefined, 'the oldest ones are left to the picker id+time label')
+
 const bareWarnings = []
 const bare = await collectTargets({ get: () => undefined }, { warn: (message) => bareWarnings.push(message) })
 assert.deepEqual(bare, { workspaces: [], sessions: [] }, 'a deployment without those services yields empty lists')
@@ -242,7 +254,7 @@ assert.ok(warnings.some((message) => /not a persona store/.test(message)))
 
 console.log(JSON.stringify({
   ok: true,
-  checks: 82,
+  checks: 85,
   section: { name: section.name, order: section.order },
   stateDir,
 }))
