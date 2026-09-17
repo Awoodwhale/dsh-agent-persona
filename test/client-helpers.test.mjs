@@ -16,4 +16,14 @@ for (const workaround of ['splitMarkdown', 'escapeUnknownTags', 'SafeChunk', 'Ma
 }
 assert.ok(source.includes('getDerivedStateFromError'), 'while a failed message still degrades to plain text instead of killing the page')
 
+// every component used in the file must actually be imported or defined here: an
+// undefined element is React error #130, and that is exactly how the conflict
+// banner crashed the page for a user whose personas overlapped.
+const imported = new Set(source.slice(source.indexOf('const {'), source.indexOf('} = primitives')).split(/[\s,]+/).filter(Boolean))
+const defined = new Set([...source.matchAll(/(?:class|const|function)\s+([A-Z][A-Za-z0-9]*)/g)].map((match) => match[1]))
+const primitivesUsed = [...source.matchAll(/\bh\(([A-Z][A-Za-z0-9]*)/g)].map((match) => match[1])
+const unresolved = [...new Set(primitivesUsed)].filter((name) => !imported.has(name) && !defined.has(name))
+assert.deepEqual(unresolved, [], `these elements are used but never imported: ${unresolved.join(', ')}`)
+assert.ok(primitivesUsed.length > 20, 'and the audit actually looked at the render calls')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 5 }))
