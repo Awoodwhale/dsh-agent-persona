@@ -25,5 +25,9 @@ const primitivesUsed = [...source.matchAll(/\bh\(([A-Z][A-Za-z0-9]*)/g)].map((ma
 const unresolved = [...new Set(primitivesUsed)].filter((name) => !imported.has(name) && !defined.has(name))
 assert.deepEqual(unresolved, [], `these elements are used but never imported: ${unresolved.join(', ')}`)
 assert.ok(primitivesUsed.length > 20, 'and the audit actually looked at the render calls')
+const iconsUsed = [...new Set([...source.matchAll(/\b(Icon[A-Za-z0-9]+)\b/g)].map((match) => match[1]))]
+const unresolvedIcons = iconsUsed.filter((name) => !imported.has(name) && !defined.has(name))
+assert.deepEqual(unresolvedIcons, [], `these icons are used but never imported: ${unresolvedIcons.join(', ')}`)
+assert.ok(iconsUsed.length > 8, 'and the icon audit saw the icons')
 
-console.log(JSON.stringify({ ok: true, clientChecks: 5 }))
+console.log(JSON.stringify({ ok: true, clientChecks: 7 }))
