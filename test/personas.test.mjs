@@ -103,12 +103,15 @@ const richCtx = {
     sessions: { get: (id) => ({ id }) },
   }[name]),
 }
-const owners = [P({ id: 'owner', name: '前端项目助手', targets: [T('workspace', 'exact', WS)] })]
+const owners = [
+  P({ id: 'wide', name: '整个代码目录', targets: [T('workspace', 'prefix', '/tmp/ws')] }),
+  P({ id: 'owner', name: '前端项目助手', targets: [T('workspace', 'exact', WS)] }),
+]
 const targets = await collectTargets(richCtx, { personas: owners })
 assert.deepEqual(targets.workspaces, [
   { path: WS, title: 'Web 应用', sessionCount: 2, owner: { id: 'owner', name: '前端项目助手' } },
-  { path: OTHER, title: OTHER, sessionCount: 0 },
-], 'workspaces keep their title, fall back to the path, and name their owning persona')
+  { path: OTHER, title: OTHER, sessionCount: 0, owner: { id: 'wide', name: '整个代码目录' } },
+], 'workspaces keep their title, fall back to the path, and name the persona that actually wins (exact beats an earlier prefix)')
 assert.deepEqual(targets.sessions.map((session) => session.id), ['s2', 's1'], 'sessions are newest first')
 assert.equal(targets.sessions[0].title, '第二条会话', 'a session title rides along when the host can produce one')
 assert.equal(targets.sessions[0].cwd, OTHER)
