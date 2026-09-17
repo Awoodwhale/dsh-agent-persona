@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const home = mkdtempSync(join(tmpdir(), 'wsp2-'))
 process.env.DSH_HOME = home
-const storePath = join(home, 'workspace-personas.json')
+const stateDir = join(home, 'dsh-workspace-persona')
+const storePath = join(stateDir, 'personas.json')
+const legacyStorePath = join(home, 'workspace-personas.json')
+const heartbeatPath = join(stateDir, 'state.json')
 
 const mod = await import(new URL('../lib/index.js', import.meta.url).href)
 const { matchTarget, resolvePersona, personaTextFor, migrateStore, sanitizePersona } = mod
@@ -93,6 +96,28 @@ const v2 = { version: 2, personas: [{ id: 'x', name: 'n', enabled: true, text: '
 assert.equal(migrateStore(v2).report, undefined)
 assert.equal(migrateStore(v2).store.personas[0].targets[0].match, 'exact')
 
+// ── legacy layout adoption: loose files under $DSH_HOME move into the plugin dir
+writeFileSync(legacyStorePath, JSON.stringify({
+  version: 1,
+  default: { enabled: false, text: '' },
+  workspaces: [{ path: WS, title: 'legacy-ws', enabled: true, text: 'FROM LEGACY', sessionPrefixes: ['legacy-'] }],
+}))
+writeFileSync(join(home, 'workspace-persona.state.json'), '{"loadedAt":"old"}')
+const migrations = []
+const adoptingCtx = {
+  logger: { info: () => {}, warn: (m) => migrations.push(m) },
+  systemPrompt: { getSectionOrder: () => 0, section: () => () => {} },
+  effect: (fn) => fn(),
+  get: () => { throw new Error('no service') },
+}
+mod.apply(adoptingCtx)
+assert.ok(existsSync(storePath), 'legacy data was written to the new location')
+assert.ok(!existsSync(legacyStorePath), 'legacy data file was moved away')
+assert.ok(existsSync(join(stateDir, 'personas.legacy.bak.json')), 'a backup of the legacy file was kept')
+assert.ok(!existsSync(join(home, 'workspace-persona.state.json')), 'the old heartbeat was removed')
+assert.deepEqual(JSON.parse(readFileSync(storePath, 'utf8')).personas.map((p) => [p.name, p.text]), [['legacy-ws', 'FROM LEGACY']])
+assert.ok(migrations.some((m) => /moved the old store/.test(m)))
+
 // ── live store read by the plugin: catch-all + silence + priority through apply()
 writeFileSync(storePath, JSON.stringify({
   version: 2,
@@ -117,8 +142,9 @@ const section = sections[0]
 assert.equal(section.text({ agent: { session: { header: { id: 'infoflow-3743-g3', cwd: '/tmp/x' } } } }), 'IFLOW {{model}}')
 assert.equal(section.text({ agent: { session: { header: { id: 'session-9', cwd: OTHER } } } }), '', 'quiet workspace silences')
 assert.equal(section.text({ agent: { session: { header: { id: 'session-9', cwd: '/tmp/elsewhere' } } } }), 'FALLBACK')
-const beat = JSON.parse(readFileSync(join(home, 'workspace-persona.state.json'), 'utf8'))
+const beat = JSON.parse(readFileSync(heartbeatPath, 'utf8'))
 assert.equal(beat.personas, 3)
 assert.equal(beat.storeVersion, 2)
+assert.equal(beat.storePath, storePath, 'heartbeat names the store it read')
 
-console.log(JSON.stringify({ ok: true, checks: 40, section: { name: section.name, order: section.order }, migrated: report.migrated, dropped: report.dropped }))
+console.log(JSON.stringify({ ok: true, checks: 48, section: { name: section.name, order: section.order }, migrated: report.migrated, dropped: report.dropped }))

@@ -31,7 +31,7 @@
 ## 2. 数据模型
 
 ```jsonc
-// $DSH_HOME/workspace-personas.json
+// $DSH_HOME/dsh-workspace-persona/personas.json
 {
   "version": 2,
   "personas": [

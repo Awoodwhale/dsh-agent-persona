@@ -23,8 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   draft) that only ever produces a proposal.
 - **System-prompt injection** as section `workspace-persona` at order 1
   (`DEPLOYMENT_PERSONA_PREFIX + 1`), i.e. above workspace `AGENTS.md`.
-- **Store outside any workspace**: `$DSH_HOME/workspace-personas.json`, re-read on
-  every prompt assembly (mtimeNs/size stamp), so edits apply to the next request.
+- **Store outside any workspace**: everything the plugin writes lives in one directory,
+  `$DSH_HOME/dsh-workspace-persona/` (`personas.json` for the data plus a `state.json` load heartbeat),
+  re-read on every prompt assembly (mtimeNs/size stamp), so edits apply to the next request. Loose files
+  from earlier development versions under `$DSH_HOME` are migrated into that directory on first load, with
+  the old data file kept as `personas.legacy.bak.json`.
+- **Row config**: `tuneProvider` / `tuneModel` pin the tuning model; `storePath` relocates the store.
 - **Automatic v1 → v2 migration** of the earlier "one persona per workspace"
   document shape.
 - **Zero runtime dependencies**: plain ESM host half + a hand-written

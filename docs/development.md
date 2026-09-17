@@ -53,7 +53,7 @@ npm run check   # 两个半边的 node --check
 | `package.json` 的 `dsh.bundle.patch` 或 `bundles` | 需要**重启** `dsh web` |
 | 打开 dsh-base 的 `id: hmr` 行（`root` 指到本目录） | ❌ 这里实测**没有**生效（改文件后模块未重载），所以本项目不依赖它 |
 
-判断"到底哪份代码在跑"：看加载心跳 `$DSH_HOME/workspace-persona.state.json` 的 `module` 与 `loadedAt`。
+判断"到底哪份代码在跑"：看加载心跳 `$DSH_HOME/dsh-workspace-persona/state.json` 的 `module` 与 `loadedAt`。
 
 ## 组合自检（不启动服务器）
 

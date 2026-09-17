@@ -1,149 +1,100 @@
-<div align="center">
-
 # dsh-workspace-persona
 
-**给每个工作区 / 每条会话一套 system prompt 人设**
+给 [DSH](https://www.deepseek.com/harness/) 加一层"人设"：每个工作区、甚至每条会话，都能有自己的一套
+system prompt。人设文件放在工作区外面，工作区里的对话改不到它。
 
-一个人设一个「适用范围」，按工作目录与会话 ID 精确投递；<br />
-多个独立人设、可排序的优先级、兜底与例外，全部在 Web 设置面板里完成。<br />
-人设存在**工作区之外**，工作区里的对话无法成为自己身份的来源。
+[![npm](https://img.shields.io/npm/v/dsh-workspace-persona)](https://www.npmjs.com/package/dsh-workspace-persona)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
+[![ci](https://github.com/awoodwhale/dsh-workspace-persona/actions/workflows/ci.yml/badge.svg)](https://github.com/awoodwhale/dsh-workspace-persona/actions/workflows/ci.yml)
 
-<a href="https://www.npmjs.com/package/dsh-workspace-persona"><img alt="npm version" src="https://img.shields.io/npm/v/dsh-workspace-persona" /></a>
-<a href="https://www.npmjs.com/package/dsh-workspace-persona"><img alt="npm downloads" src="https://img.shields.io/npm/dm/dsh-workspace-persona" /></a>
-<a href="https://github.com/awoodwhale/dsh-workspace-persona/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/awoodwhale/dsh-workspace-persona/actions/workflows/ci.yml/badge.svg" /></a>
-<a href="https://github.com/awoodwhale/dsh-workspace-persona/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/awoodwhale/dsh-workspace-persona" /></a>
-<a href="https://opensource.org/licenses/Apache-2.0"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" /></a>
-<a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="支持的 DSH 版本：0.1.5-rc.1+（已在 0.1.5-rc.2 上验证）" src="https://img.shields.io/badge/DSH-0.1.5--rc.1%2B_%28verified_rc.2%29-4d6bfe" /></a>
-<a href="https://dshfind.com/zh/plugins/awoodwhale/dsh-workspace-persona"><img alt="dshfind" src="https://dshfind.com/api/badge/awoodwhale/dsh-workspace-persona?lang=zh" /></a><br /><br />
-<img alt="多个人设" src="https://img.shields.io/badge/-多个人设-4d6bfe" /> <img alt="范围匹配" src="https://img.shields.io/badge/-范围匹配-4d6bfe" /> <img alt="顺序即优先级" src="https://img.shields.io/badge/-顺序即优先级-4d6bfe" /> <img alt="命中测试" src="https://img.shields.io/badge/-命中测试-4d6bfe" /> <img alt="Markdown 编辑" src="https://img.shields.io/badge/-Markdown%20编辑-4d6bfe" /> <img alt="AI 调优" src="https://img.shields.io/badge/-AI%20调优-4d6bfe" /> <img alt="零运行时依赖" src="https://img.shields.io/badge/-零运行时依赖-4d6bfe" />
+[English](./README_EN.md)
 
-<div>
-  🌏 <a href="./README.md"><b>中文</b></a> · <a href="./README_EN.md">English</a>
-</div>
+## 为什么写这个
 
-<div>
-  <img alt="工作区人设：折叠列表与优先级" src="./docs/images/settings-list.png" width="620" />
-</div>
+一开始只是想把如流里的机器人接到 DSH 上，让它有个固定人设。
 
-</div>
+最直接的做法是往工作区的 `AGENTS.md` 里写。试了之后发现两个问题：`AGENTS.md` 就是工作区里的一个普通文件，
+任何能读这个目录的会话都能顺手改掉它；而且它只按目录生效，区不出"这条会话是从如流来的"还是"从 Web 来的"。
 
-> **English TL;DR** — A DSH plugin that injects system-prompt personas per workspace/session. Create many
-> personas; each declares its own scope (workspace path or session id, matched exactly / by prefix / regex /
-> substring). Managed from a Web settings page with Markdown editing, live preview, a host-computed match
-> test and AI tuning. Personas live outside any workspace, so a conversation inside a workspace cannot be the
-> source of its own identity. [English README →](./README_EN.md)
+所以换了个位置放：人设存在工作区外面，按会话的工作目录和会话 ID 投递，写进 **system prompt**。
+DSH 在这件事上是帮你的——工作区指令（`AGENTS.md`）会被 `dsh-agent-instructions` 变成一条 **user 角色**的消息，
+它自己带的导语就写着 *"They do not override system, developer, or direct user instructions."*。
+而这里注入的是 system prompt 的一个 section（order 1，紧跟在身份行后面）。这个先后关系是框架定的，
+不是插件自己声明的。
 
-## 📑 目录
-
-- [✨ 功能一览](#-功能一览)
-- [🚀 安装](#-安装)
-- [🖼️ 特性巡礼](#️-特性巡礼)
-- [🧭 匹配规则](#-匹配规则)
-- [🗄️ 存储与注入](#️-存储与注入)
-- [⚙️ 行配置](#️-行配置)
-- [🔌 服务化扩展](#-服务化扩展)
-- [🛠️ 开发](#️-开发)
-- [🔐 安全](#-安全) · [⚠️ 已知限制](#️-已知限制) · [🖥️ 平台支持](#️-平台支持)
-- [🆕 最近更新](#-最近更新) · [🤝 参与贡献](#-参与贡献) · [⭐ Star History](#-star-history)
-
-## ✨ 功能一览
-
-- **👥 多个人设**：不是"一个工作区一个人设"，而是任意多个人设，各自独立启用 / 停用、重命名、复制、排序。
-- **🎯 精确投递**：每个人设自带一组匹配规则 —— `工作区目录` 或 `会话 ID`，四种匹配方式
-  （精确 / 前缀 / 正则 / 包含），同一人设内多条规则是「或」。
-- **↕️ 顺序即优先级**：列表自上而下第一个命中的生效；卡片上的 `↑ ↓` 就是调优先级。
-- **🪄 兜底与例外**：不填规则的人设是**兜底**；正文留空的人设一旦命中就表示"这里不要人设"，
-  可以给兜底开例外。
-- **📝 设置面板内完成**：折叠卡列表 → 展开内联编辑 → 适用范围规则编辑器 → Markdown 编辑 / 预览 →
-  AI 调优 → 保存。`⌘/Ctrl+S` 保存。
-- **🔍 命中测试**：填一个 `cwd` 和 / 或会话 ID，由**宿主**用同一套解析器算一遍 —— 命中谁、由哪条规则
-  命中、是否因正文为空而静默、跳过了几个停用人设。页面永远不会与真实注入漂移。
-- **🤖 AI 调优**：润色 / 补充细节 / 精简 / 按描述生成；模型只产出**建议稿**，点「采用 / 追加 / 放弃」，
-  **不会自动保存**。模型来源优先取界面选择，其次本行配置，最后宿主的 `agentDefaultModel`。
-- **🧱 system-prompt 级**：注入为 system prompt 的 section（order 1），**优先级高于工作区 `AGENTS.md`**。
-- **🗂️ 工作区之外**：人设存 `$DSH_HOME/workspace-personas.json`，改完**下一个请求**生效，无需重启。
-- **📦 零运行时依赖 / 无构建**：host 是普通 ESM 插件，client 是手写的 `__ModuleLoader__` 模块，
-  仓库里 `lib/` 就是源码；单测只用 Node 内置模块。
-
-## 🚀 安装
+## 装
 
 ```bash
-# 装进 web profile（CLI 会自动把本包接进 profile 的 bundles 层）
 dsh plugin --profile web add dsh-workspace-persona
-
-# 重启 dsh web —— profile 的 bundles 只在启动时读取
 ```
 
-也可以直接用仓库里的脚本：
+装完要**重启一次 `dsh web`**：DSH 的 profile bundles 只在启动时读取，插件行是从那里挂进去的。
 
-```bash
-bash scripts/install.sh              # 默认 profile: web
-pwsh -File scripts/install.ps1       # Windows
+重启后能看到：
+
+- 侧边栏 **设置 → 工作区人设**；
+- `cat ~/.dsh/dsh-workspace-persona/state.json`，这是插件的加载心跳（写明了实际加载的是哪个文件）。
+
+仓库里也有个脚本，图省事可以用：`bash scripts/install.sh`（Windows 是 `scripts/install.ps1`）。
+
+## 怎么用
+
+设置页大概长这样：
+
+![人设列表](./docs/images/settings-list.png)
+
+点 **新建人设**，给它填适用范围，然后打开「启用」，保存。
+
+- **新建出来的人设默认是停用的**。多一份人设不会影响任何现有会话，配好了再开。
+- **适用范围**可以写多条，每条是 `[工作区目录 | 会话 ID]` + `[精确 | 前缀 | 正则 | 包含]` + 值。
+  同一条人设里的多条规则是「或」。
+- **顺序就是优先级**：卡片右边的 `↑ ↓` 调顺序，自上而下第一个命中的生效。
+- **没填规则的人设是兜底**，放在列表最后最合适。反过来，如果你想让某个地方"就是不要人设"，
+  写一条命中它的规则、正文留空就行——留空的人设一旦命中，表示这里不注入任何人设。
+- **命中测试**在页面底部：填一个 cwd 和/或会话 ID，由宿主真的算一遍，告诉你命中谁、是哪条规则命中的、
+  有没有因为正文为空被静默、跳过了几个人设。省得靠猜。
+- **AI 调优**只出建议稿，点「采用」或「追加」才会进编辑框，再点保存才落盘。它不会自己保存。
+
+展开一张卡之后是这样：
+
+![展开编辑](./docs/images/settings-editor.png)
+
+## 匹配是怎么算的
+
+宿主在每次组装 system prompt 的时候按这个顺序试：
+
+1. 人设停用了 → 跳过；
+2. 按列表顺序看，只要该人设的**任意一条**规则命中，它就是赢家；
+3. 没写规则的人设是兜底，命中所有还没被认领的会话；
+4. 赢家正文是空的 → 什么都不注入；
+5. 全都没命中 → 这个 section 渲染为空，被丢掉，会话用它原本的 DSH system prompt。
+
+四种匹配方式里，只有 `exact` 会把路径归一化（所以 `/a/project/` 和 `/a/project` 算同一个）；
+`prefix`、`contains`、`regex` 都是拿你写的字符串直接比——不然 `contains "my-project"` 这种写法就没法用了。
+匹配值空着、正则写错了、或者会话没有那个字段，都当成"不命中"，不会报错。
+
+## 文件放在哪
+
+都在这一个目录里：
+
+```
+~/.dsh/dsh-workspace-persona/
+├── personas.json   # 人设数据，权限 600，原子写入
+└── state.json      # 加载心跳，每次加载时重写
 ```
 
-**重启后确认**：
+人设正文里可以写 `{{model}}` 和 `{{cwd}}`，会在渲染时替换成当前的值。其他 `{{...}}` 会被去掉——
+未注册的变量会让整个组装抛错，所以这里做了一层保护。
 
-1. 侧边栏 **设置 → 左栏出现「工作区人设」**；
-2. `cat "$DSH_HOME/workspace-persona.state.json"` —— 本插件 host 半边的加载心跳（含实际加载的文件路径）。
+数据文件是**每次组装时按 mtime 重读**的，所以改完下一个请求就生效，不用重启。
 
-## 🖼️ 特性巡礼
+> 更早的开发版本里这两个文件散在 `~/.dsh/` 根下（`workspace-personas.json`、`workspace-persona.state.json`）。
+> 新版本第一次加载时会把数据搬进上面的目录，旧文件改名成 `personas.legacy.bak.json` 留个底。
 
-<table>
-<tr>
-<td width="50%">
+## 想固定调优用哪个模型
 
-**人设列表**：序号 / 状态点 / 名称 / 状态徽标 / 适用范围 chips / 字数，
-`↑ ↓` 调优先级，`复制`、`编辑`、删除（两次确认）。顶部 `新建人设` 建出来**默认停用** —— 新增动作
-永远不改变任何会话当前拿到的人设。
-
-</td>
-<td width="50%">
-
-**展开编辑**：名称 + 启用开关、适用范围规则编辑器、Markdown 正文（编辑 / 预览）、
-AI 调优折叠、底部 `字符数 · ⌘S`、`复制 / 删除 / 收起 / 保存`。
-
-</td>
-</tr>
-<tr>
-<td><img alt="人设列表" src="./docs/images/settings-list.png" /></td>
-<td><img alt="展开编辑" src="./docs/images/settings-editor.png" /></td>
-</tr>
-</table>
-
-## 🧭 匹配规则
-
-一条规则是 `{ kind, match, value }`：
-
-- `kind` — `workspace`（比对会话的工作目录 `cwd`）或 `sessionId`（比对会话 ID）
-- `match` — `exact` 精确 / `prefix` 前缀 / `regex` 正则 / `contains` 包含
-- 只有 `exact` 会做路径归一化（`…/project/` 与 `…/project` 等价）；`prefix` / `contains` / `regex`
-  比对**你原样输入的字符串**（这才让 `contains "my-project"` 这种写法可用）。
-
-**解析顺序**（宿主在每次组装 system prompt 时执行）：
-
-1. 人设**停用** → 整个跳过；
-2. 按**列表顺序**逐个看：该人设的**任一条**规则命中 → 它就是赢家；
-3. 人设**没有任何规则** → 兜底，命中所有未被前面命中的会话（放在列表底部）；
-4. 赢家正文**为空** → 不注入任何人设（显式静默，可给兜底开例外）；
-5. 谁都没命中 → 该 section 渲染为空并被丢弃 → 会话保持 **DSH 原生 system prompt**。
-
-## 🗄️ 存储与注入
-
-| 项目 | 值 |
-|---|---|
-| 人设数据 | `$DSH_HOME/workspace-personas.json`（默认 `~/.dsh/workspace-personas.json`，原子写入，权限 600） |
-| 加载心跳 | `$DSH_HOME/workspace-persona.state.json` |
-| 注入位置 | system prompt section `workspace-persona`，order = `DEPLOYMENT_PERSONA_PREFIX + 1` = **1** |
-| 模板变量 | `{{model}}`、`{{cwd}}`（其他 `{{…}}` 会被去掉，避免组装失败） |
-| 生效时机 | 数据文件按 `mtimeNs:size` 戳在**每次组装**时重读 → 改完**下一个请求**生效 |
-
-**为什么优先级高于 `AGENTS.md`**：工作区指令由 `dsh-agent-instructions` 变成一条 **user 角色**的消息，
-它自带的导语写着 *"They do not override system, developer, or direct user instructions."*；
-而本插件写进的是 **system prompt 的 section**。这是框架的结构性保证。
-
-## ⚙️ 行配置
-
-给部署固定 AI 调优用的模型（在 profile 的用户补丁层覆盖这一行，**不要**重新 insert 它）：
+默认会去问宿主的 `agentDefaultModel`。如果你想让这个部署固定用某个模型，在 profile 的用户补丁层覆盖这一行
+（**不要**再 insert 一次）：
 
 ```yaml
 # ~/.dsh/profiles/web/cordis.patch.yml
@@ -153,76 +104,45 @@ AI 调优折叠、底部 `字符数 · ⌘S`、`复制 / 删除 / 收起 / 保�
     tuneModel: your-model-id
 ```
 
-## 🔌 服务化扩展
+同一行里还能用 `storePath` 换人设文件的存放位置。
 
-host 半边对外提供 `workspacePersona` 远程命名空间（typert source-mode，**不需要 codegen**），
-设置页用的就是同一套接口：
+## 几句实话
 
-| 方法 | 说明 |
-|---|---|
-| `listPersonas` | 完整视图（存储路径、section 信息、常量表、计数、人设数组） |
-| `savePersona` / `deletePersona` | 新建（无 `id`）/ 更新 / 删除 |
-| `movePersona` / `duplicatePersona` | 调优先级 / 复制（副本默认停用） |
-| `previewMatch` | 给定 `cwd` / `sessionId` 解析出赢家与命中原因 |
-| `tunePersona` / `listModels` | AI 调优与可选模型 |
+- **人设是行为约束，不是安全边界**。它约束模型怎么说，不阻止模型用工具。
+- `personas.json` 就是个**普通文件**，任何有文件工具权限的会话都写得动它。这个插件**没有**注册
+  `tools.guard`，所以如果你真的需要"工作区里的会话改不动人设"，得在本机层面想办法：
+  `chmod 400` + 换个属主，或者干脆把 DSH 跑在受限沙箱里。
+- AI 调优得有个能用的模型，找不到会明确报错，不会静默失败。
+- 规则是线性扫的，几十条没问题，多到几百条就该重新设计了。
+- 多条规则同时命中时**只取第一条**，不拼接。（拼接方案当初考虑过，因为不好预测、不好调，放弃了；
+  记在 [docs/plans](./docs/plans/2026-09-17-v2-multi-persona.md) 里。）
+- 一个 profile 里只装一次。同一个进程挂两个同 id 的行会让组合起不来。
 
-契约细节、信封约定与踩坑见 [docs/architecture.md](./docs/architecture.md)。
+## 开发
 
-## 🛠️ 开发
-
-```bash
-npm test        # 40 项断言：匹配引擎、v1→v2 迁移、注入、心跳
-npm run check   # 两个半边的语法检查
-dsh --profile web --dump-config | grep -c 'id: workspace-persona'   # 组合自检，期望 1
+```
+lib/index.js      host 半边：存储、匹配、section、远程服务（就是源码，没有构建产物）
+lib/client.js     client 半边：设置页，手写的 __ModuleLoader__ 模块
+test/             48 条断言，只用 Node 内置模块
+docs/             架构、开发笔记、设计决策
+scripts/          安装脚本
 ```
 
-**改代码怎么生效**（DSH 的插件重载语义：`patchReload: live` 只 watch patch 文件）：
+```bash
+npm test        # 跑断言
+npm run check   # 两个半边的语法检查
+dsh --profile web --dump-config | grep -c 'id: workspace-persona'   # 组合自检，应该输出 1
+```
 
-- `lib/client.js` 改**内容** → 客户端产物重算，刷新页面即可（别改文件名，换了名字不会重算）；
-- `lib/index.js`（host）改**内容** → **不会**重新 import（ESM 按 URL 缓存）；免重启迭代要么换一个
-  新文件名并在 patch 里指向它，要么重启 `dsh web`；
-- `package.json` 的 `dsh.bundle.patch` 或 `profile.bundles` → 需要重启。
+改代码之后怎么让它生效，有几个坑值得先看一眼：
 
-详见 [docs/development.md](./docs/development.md)，设计决策见 [docs/plans/](./docs/plans/)。
+- `lib/client.js` 改**内容**：客户端产物会重算，刷新页面就行。但别改文件名——换个名字它不会重算。
+- `lib/index.js` 改**内容**：**不会**重新加载，ESM 按 URL 缓存模块。想免重启试新代码，就把 patch 的行
+  指向一个新文件名；否则重启 `dsh web`。
+- `package.json` 里的 `dsh.bundle.patch` 或 profile 的 `bundles` 有改动：必须重启。
 
-## 🔐 安全
+细节写在 [docs/development.md](./docs/development.md)，内部结构在 [docs/architecture.md](./docs/architecture.md)。
 
-- 人设是**行为约束**，不是安全边界：它约束模型，但不阻止模型执行工具。
-- `$DSH_HOME/workspace-personas.json` 是**普通文件**：任何拥有文件工具权限的会话都能写它
-  （本插件目前不注册 `tools.guard`）。若需要"工作区里的会话改不动人设"，请在本机层加固，例如
-  `chmod 400` + 由独立用户持有，或把 DSH 跑在受限沙箱里。
-- 仓库与 npm 包内**不含任何凭据**；人设内容由使用者自己维护。
+## 许可
 
-## ⚠️ 已知限制
-
-- AI 调优需要一个可用模型：界面选择 → 行配置 → 宿主 `agentDefaultModel`，都没有时会明确报错。
-- 规则匹配是**线性扫描**（几十条量级），没有索引；人设数量极大时需要重新设计。
-- 多条命中时**不拼接**，只有第一条生效（拼接方案见 `docs/plans/` 里被否掉的替代方案）。
-- 一个进程内只挂载一个 `workspace-persona` section；同一个 profile 不要重复引入本插件。
-
-## 🖥️ 平台支持
-
-宿主半边只用 Node 内置模块；客户端半边是浏览器模块。macOS / Linux / Windows 均可，
-`scripts/` 下两个安装脚本分别覆盖 Bash 与 PowerShell。不依赖终端 / PTY 等平台相关能力。
-
-## 🆕 最近更新
-
-见 [CHANGELOG.md](./CHANGELOG.md)。`0.1.0` 为首次发布：多个人设 + 适用范围 + 命中测试 + AI 调优，
-并带 v1 → v2 自动迁移。
-
-## 🤝 参与贡献
-
-- 提 issue 请附上：DSH 版本（`dsh --version`）、`$DSH_HOME/workspace-persona.state.json`、以及
-  host 日志里带 `[workspace-persona]` 前缀的那几行。
-- 改代码请跑 `npm run check && npm test`；新增行为请补充 `test/personas.test.mjs` 的断言。
-- 提交信息用 conventional commits（`feat:` / `fix:` / `docs:` …）。
-
-## ⭐ Star History
-
-<a href="https://star-history.com/#awoodwhale/dsh-workspace-persona&Date">
-  <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=awoodwhale/dsh-workspace-persona&type=Date" />
-</a>
-
-## 📄 许可
-
-[Apache-2.0](./LICENSE) © 2026 awoodwhale
+Apache-2.0，见 [LICENSE](./LICENSE)。
