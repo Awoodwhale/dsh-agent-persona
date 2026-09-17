@@ -30,15 +30,15 @@ npm run check   # 两个半边的 node --check
 ```yaml
 # ~/.dsh/profiles/web/cordis.patch.yml
 - insert:
-    - id: workspace-persona
-      name: './dsh-workspace-persona/lib/index.js'   # 相对路径，指向本仓库的文件
+    - id: agent-persona
+      name: './dsh-agent-persona/lib/index.js'   # 相对路径，指向本仓库的文件
 ```
 
 `patchReload: live` 会监听这个文件：**改这个 patch 文件的内容**会立即重放。
 
 > ⚠️ **两者只能选一个**：手写 `insert` 的同时，包又声明 `dsh.bundle.patch`，一旦有任何 `dsh plugin`
 > 操作把包加进 `bundles`，同一个 id 就会被插两次 → 组合无法启动：
-> `duplicate loader entry id "workspace-persona" (2 rows)`。
+> `duplicate loader entry id "agent-persona" (2 rows)`。
 > 用开发接线时，把 `package.json` 里的 `dsh.bundle` 去掉（发布时再加回来）。
 
 ## 重载语义（实测）
@@ -53,12 +53,12 @@ npm run check   # 两个半边的 node --check
 | `package.json` 的 `dsh.bundle.patch` 或 `bundles` | 需要**重启** `dsh web` |
 | 打开 dsh-base 的 `id: hmr` 行（`root` 指到本目录） | ❌ 这里实测**没有**生效（改文件后模块未重载），所以本项目不依赖它 |
 
-判断"到底哪份代码在跑"：看加载心跳 `$DSH_HOME/dsh-workspace-persona/state.json` 的 `module` 与 `loadedAt`。
+判断"到底哪份代码在跑"：看加载心跳 `$DSH_HOME/dsh-agent-persona/state.json` 的 `module` 与 `loadedAt`。
 
 ## 组合自检（不启动服务器）
 
 ```bash
-dsh --profile web --dump-config | grep -c 'id: workspace-persona'   # 期望 1
+dsh --profile web --dump-config | grep -c 'id: agent-persona'   # 期望 1
 ```
 
 `--dump-config` 只打印组合后的树，**它不做重复 id 校验**，所以重复问题要用静态扫描发现：
@@ -74,7 +74,7 @@ dsh --profile web --dump-config | grep -c 'id: workspace-persona'   # 期望 1
   所以 `render()` 里包了一层 try/catch 把异常渲染成可见文案，而不是让它冒泡。
   排查时给组件挂 `window.*` 诊断变量是最快的办法（本项目历史上就这么定位到"props 是 undefined"和
   "remote 未挂载"两类问题）。
-- **远程调用**：返回值是信封。页面里可以直接 `ctx.get('remote.workspacePersona').listPersonas()`；
+- **远程调用**：返回值是信封。页面里可以直接 `ctx.get('remote.agentPersona').listPersonas()`；
   或在 devtools 里看 `{ ok: false, error: { code: 'gateway/internal' } }`——`gateway/internal` 表示
   host 方法抛了异常，真实原因要看 host 日志或让方法把错误当数据返回。
 

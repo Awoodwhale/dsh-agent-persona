@@ -4,5 +4,5 @@
 # client-modules discovers `./lib/client.js` from this package's package.json and
 # serves it to the Web app.
 - insert:
-    - id: workspace-persona
-      name: dsh-workspace-persona
+    - id: agent-persona
+      name: dsh-agent-persona

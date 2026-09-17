@@ -1,19 +1,19 @@
-# dsh-workspace-persona
+# dsh-agent-persona
 
 给不同的**工作区**、不同的**会话**，用不同的 system prompt 人设。
 
 一个 DSH 部署里常常同时跑着好几摊活：写前端、写文档、盯告警、做代码审查。它们需要不同的身份、口径和约束。
 把人设按工作区或会话分发出去，比在每个工作区里各放一份文件省事得多：
 
-- 人设存在**工作区之外**（`~/.dsh/dsh-workspace-persona/`）：工作区里的对话改不到它，也不会被
+- 人设存在**工作区之外**（`~/.dsh/dsh-agent-persona/`）：工作区里的对话改不到它，也不会被
   `git checkout` 或一次清理带走。
 - 注入的是 **system prompt 的一段**，不是一条提示消息 —— 优先级在工作区 `AGENTS.md` 之上。
 - 配置全在 Web 设置页里：新建人设、从下拉框里选工作区或会话、写正文、让 AI 用当前模型改一版。
 - 改完**下一条消息**就生效，不用重启。
 
-[![npm](https://img.shields.io/npm/v/dsh-workspace-persona)](https://www.npmjs.com/package/dsh-workspace-persona)
+[![npm](https://img.shields.io/npm/v/dsh-agent-persona)](https://www.npmjs.com/package/dsh-agent-persona)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
-[![ci](https://github.com/awoodwhale/dsh-workspace-persona/actions/workflows/ci.yml/badge.svg)](https://github.com/awoodwhale/dsh-workspace-persona/actions/workflows/ci.yml)
+[![ci](https://github.com/awoodwhale/dsh-agent-persona/actions/workflows/ci.yml/badge.svg)](https://github.com/awoodwhale/dsh-agent-persona/actions/workflows/ci.yml)
 
 [English](./README_EN.md)
 
@@ -28,15 +28,15 @@ DSH 会把工作区指令（`AGENTS.md` 之类）变成一条 **user 角色**的
 ## 装
 
 ```bash
-dsh plugin --profile web add dsh-workspace-persona
+dsh plugin --profile web add dsh-agent-persona
 ```
 
 装完**重启一次 `dsh web`**：profile 的 bundles 只在启动时读取，插件行是从那里挂进去的。
 
 重启后能看到：
 
-- 侧边栏 **设置 → 工作区人设**；
-- `cat ~/.dsh/dsh-workspace-persona/state.json` —— 插件的加载心跳，写明了它加载了哪个文件、人设存哪。
+- 侧边栏 **设置 → Agent人设**；
+- `cat ~/.dsh/dsh-agent-persona/state.json` —— 插件的加载心跳，写明了它加载了哪个文件、人设存哪。
 
 仓库里也有安装脚本：`bash scripts/install.sh`（Windows 是 `scripts/install.ps1`）。
 
@@ -52,13 +52,36 @@ dsh plugin --profile web add dsh-workspace-persona
 - 下拉框里的工作区来自 DSH 的工作区列表（带会话数），会话来自 DSH 的全部会话，按时间倒序，
   带标题、工作目录和「几分钟前」—— 不记得 session id 是什么没关系，认标题就行。
 - 想用前缀、正则这类高级匹配，选 **自己输入…** 就会变成输入框。
-- **顺序就是优先级**：卡片右边的 `↑ ↓` 调顺序，自上而下第一个匹配到的生效。
+- **顺序就是优先级**：顺序在卡片的 `⋯` 菜单里调（上移/下移），自上而下第一个匹配到的生效。
 - **一行都不加的人设是默认人设**，会用在所有没被前面人设覆盖的会话上，放列表最后。
 - 反过来，如果某个地方**就是不要人设**：给它加一行、正文留空。正文为空的人设一旦匹配上，就不注入任何人设。
 
 展开一张卡是这样：
 
 ![展开编辑](./docs/images/settings-editor.png)
+
+## 一个人设管一个地方
+
+一个工作区、一条会话，**只能属于一条人设**。把某个位置配给一条新人设时，原来占着它的那条会自动失去这个位置，
+保存后会告诉你从谁那里转过来的（`⋯` → 上移/下移的另一半就是这件事的兜底：万一是前缀/正则这类重叠，
+仍然按列表顺序取第一条）。
+
+在下拉框里也能直接看到占用情况：已经被别人占着的工作区/会话，后面会写着「已被「X」使用」。
+
+选中一条会话之后，旁边那个按钮可以**看一眼这条会话聊过什么**（最近几条消息），
+方便判断这个位置到底该不该套人设。
+
+## 注入方式：追加还是替换
+
+每条人设可以选它和 DSH 自带身份提示的关系：
+
+| 方式 | 效果 |
+|---|---|
+| **追加**（默认） | 保留 DSH 自带的那句身份提示，这条人设接在它后面 |
+| **替换** | 去掉 DSH 自带的身份那句话，只用这条人设 |
+
+「替换」只动**部署自己写的**那句 persona；如果某个 Agent 预设在自己作用域里写了 persona（把这一段遮蔽了），
+插件不会去覆盖它 —— 别人的身份提示优先。
 
 ## 匹配是怎么算的
 
@@ -77,7 +100,7 @@ dsh plugin --profile web add dsh-workspace-persona
 ## 文件放在哪
 
 ```
-~/.dsh/dsh-workspace-persona/
+~/.dsh/dsh-agent-persona/
 ├── personas.json   # 人设数据，权限 600，原子写入
 └── state.json      # 加载心跳，每次加载时重写
 ```
@@ -94,7 +117,7 @@ dsh plugin --profile web add dsh-workspace-persona
 
 ```yaml
 # ~/.dsh/profiles/web/cordis.patch.yml
-- id: workspace-persona
+- id: agent-persona
   config:
     tuneProvider: your-provider
     tuneModel: your-model-id
@@ -126,7 +149,7 @@ scripts/          安装脚本
 ```bash
 npm test        # 跑断言
 npm run check   # 两个半边的语法检查
-dsh --profile web --dump-config | grep -c 'id: workspace-persona'   # 组合自检，应该输出 1
+dsh --profile web --dump-config | grep -c 'id: agent-persona'   # 组合自检，应该输出 1
 ```
 
 改代码之后怎么生效，有几个坑值得先看一眼：

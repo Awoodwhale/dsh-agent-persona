@@ -1,4 +1,4 @@
-# dsh-workspace-persona
+# dsh-agent-persona
 
 Different system-prompt personas for different **workspaces** and different **sessions**.
 
@@ -6,7 +6,7 @@ A DSH deployment usually runs several jobs at once — frontend work, docs, aler
 wants its own identity, tone and constraints. Delivering a persona by workspace or session beats keeping one
 file per workspace:
 
-- Personas live **outside any workspace** (`~/.dsh/dsh-workspace-persona/`), so a conversation inside that
+- Personas live **outside any workspace** (`~/.dsh/dsh-agent-persona/`), so a conversation inside that
   workspace cannot rewrite them, and a `git checkout` or a cleanup will not take them away.
 - A persona is injected as **part of the system prompt**, not as a chat message, which puts it above the
   workspace `AGENTS.md`.
@@ -14,9 +14,9 @@ file per workspace:
   dropdowns, write the text, let AI rework it with the model DSH is set to use.
 - An edit applies to the **next message**. No restart.
 
-[![npm](https://img.shields.io/npm/v/dsh-workspace-persona)](https://www.npmjs.com/package/dsh-workspace-persona)
+[![npm](https://img.shields.io/npm/v/dsh-agent-persona)](https://www.npmjs.com/package/dsh-agent-persona)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
-[![ci](https://github.com/awoodwhale/dsh-workspace-persona/actions/workflows/ci.yml/badge.svg)](https://github.com/awoodwhale/dsh-workspace-persona/actions/workflows/ci.yml)
+[![ci](https://github.com/awoodwhale/dsh-agent-persona/actions/workflows/ci.yml/badge.svg)](https://github.com/awoodwhale/dsh-agent-persona/actions/workflows/ci.yml)
 
 [中文](./README.md)
 
@@ -34,15 +34,15 @@ workspace cannot touch this layer.
 ## Install
 
 ```bash
-dsh plugin --profile web add dsh-workspace-persona
+dsh plugin --profile web add dsh-agent-persona
 ```
 
 Then **restart `dsh web` once**: profile bundles are read at startup, and that is where the plugin row lives.
 
 After the restart:
 
-- Sidebar → **Settings → 工作区人设**;
-- `cat ~/.dsh/dsh-workspace-persona/state.json` — the load heartbeat, naming the file it loaded and where the
+- Sidebar → **Settings → Agent人设**;
+- `cat ~/.dsh/dsh-agent-persona/state.json` — the load heartbeat, naming the file it loaded and where the
   personas are kept.
 
 There is also `bash scripts/install.sh` (or `scripts/install.ps1` on Windows).
@@ -61,7 +61,7 @@ Hit **新建人设** → pick workspaces or sessions under 「用在哪些地方
   DSH's sessions newest-first with title, working directory and a "3 minutes ago" stamp — so you do not need to
   know what a session id is, you recognise the session by its title.
 - For prefix / regex / substring matching, choose **自己输入…** and the row becomes a text input.
-- **Order is priority.** `↑ ↓` reorder a card; the first match from the top wins.
+- **Order is priority.** Reordering lives in the card's `⋯` menu (move up / move down); the first match from the top wins.
 - **A persona with no rows is the default persona**: it takes every session the personas above did not claim.
   Keep it at the bottom.
 - The other way round, if somewhere should get **no** persona: give it a row and leave the text empty. An empty
@@ -70,6 +70,27 @@ Hit **新建人设** → pick workspaces or sessions under 「用在哪些地方
 An expanded card:
 
 ![expanded editor](./docs/images/settings-editor.png)
+
+## One persona per place
+
+A workspace or a session belongs to **exactly one** persona. Pointing a new persona at a place takes it away from
+whoever held it, and the save reports which persona lost it. (Rows using prefix / regex / contains cannot be
+compared statically, so for those the first match in list order still wins.)
+
+The picker also shows occupancy: workspaces and sessions already claimed are labelled 「已被「X」使用」.
+
+Once a session is picked, the button next to the picker opens a short read of that session's conversation, so you
+can judge whether the persona belongs there.
+
+## Injection mode: append or replace
+
+| Mode | Effect |
+|---|---|
+| **append** (default) | keep DSH's own identity line and put the persona right after it |
+| **replace** | drop DSH's own identity line and use the persona alone |
+
+`replace` only touches the persona **the deployment itself wrote**: if an agent preset shadowed that section with
+its own persona, the plugin leaves it alone — someone else's identity wins.
 
 ## How matching works
 
@@ -88,7 +109,7 @@ regex, or a session that lacks the compared field all count as "no match" and ne
 ## Where the files are
 
 ```
-~/.dsh/dsh-workspace-persona/
+~/.dsh/dsh-agent-persona/
 ├── personas.json   # the data, mode 600, written atomically
 └── state.json      # load heartbeat, rewritten on every load
 ```
@@ -106,7 +127,7 @@ layer (**do not** insert it a second time):
 
 ```yaml
 # ~/.dsh/profiles/web/cordis.patch.yml
-- id: workspace-persona
+- id: agent-persona
   config:
     tuneProvider: your-provider
     tuneModel: your-model-id
@@ -140,7 +161,7 @@ scripts/          installers
 ```bash
 npm test        # run the assertions
 npm run check   # syntax check both halves
-dsh --profile web --dump-config | grep -c 'id: workspace-persona'   # composition self-check, prints 1
+dsh --profile web --dump-config | grep -c 'id: agent-persona'   # composition self-check, prints 1
 ```
 
 A few things to know before you edit code:

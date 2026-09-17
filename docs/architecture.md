@@ -7,8 +7,8 @@
 
 | 半边 | 文件 | 运行位置 | 职责 |
 |---|---|---|---|
-| host | `lib/index.js` | DSH Node 进程 | 读写人设存储、解析匹配、注册 system-prompt section、对外提供 `workspacePersona` 远程服务 |
-| client | `lib/client.js` | 浏览器（Web app） | 设置页 UI；自己 `$mount` 远程描述符后通过 `ctx.get('remote.workspacePersona')` 调宿主 |
+| host | `lib/index.js` | DSH Node 进程 | 读写人设存储、解析匹配、注册 system-prompt section、对外提供 `agentPersona` 远程服务 |
+| client | `lib/client.js` | 浏览器（Web app） | 设置页 UI；自己 `$mount` 远程描述符后通过 `ctx.get('remote.agentPersona')` 调宿主 |
 
 两者都是**普通 ESM / 普通模块**：
 
@@ -21,8 +21,8 @@
 
 ```yaml
 - insert:
-    - id: workspace-persona
-      name: dsh-workspace-persona
+    - id: agent-persona
+      name: dsh-agent-persona
 ```
 
 同一行也是浏览器 roster 行 —— 包在 `package.json` 里声明了 `dsh.client`，client-modules 会顺着这行
@@ -31,7 +31,7 @@
 ## 2. 数据模型
 
 ```jsonc
-// $DSH_HOME/dsh-workspace-persona/personas.json
+// $DSH_HOME/dsh-agent-persona/personas.json
 {
   "version": 1,
   "personas": [
@@ -62,7 +62,7 @@
   └─ dsh-system-prompt 组装 system prompt
        ├─ section -1000  harness identity
        ├─ section 0      deployment:persona-prefix（preset 的 persona 行）
-       ├─ section 1      workspace-persona   ← 本插件
+       ├─ section 1      agent-persona   ← 本插件
        ├─ section 500+   工具引导 …
        └─ section 10200  deployment:persona-suffix
             ▲
@@ -94,7 +94,7 @@
 
 host 侧 `WorkspacePersonaService extends TypertRemoteService`，方法用 `@Remote` 标记
 （本包用无装饰器语法的等价写法，在构造函数里跑 marker initializer）。
-Gateway 的 **source-mode 发现**会直接把这些方法挂上 `/api/workspacePersona/<method>`，
+Gateway 的 **source-mode 发现**会直接把这些方法挂上 `/api/agentPersona/<method>`，
 因此**不需要 codegen、不需要生成的 manifest**。
 
 | 方法 | 入参 | 返回 |
