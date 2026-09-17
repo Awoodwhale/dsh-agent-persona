@@ -78,7 +78,8 @@
 **解析顺序**（`resolvePersona`）：
 
 1. `enabled === false` → 跳过；
-2. 按数组顺序：该人设的**任意**一条 `targets` 命中 → 中选；
+2. 每条命中的规则按**具体度**打分（`sessionId` > `workspace`，`exact` > `prefix` > `contains`/`regex`，见 `targetSpecificity`），
+   取各人设的**最高分**比较，分高者中选；同分才按数组顺序取靠前的；
 3. `targets` 为空 → 兜底，中选（应放在列表底部）；
 4. 中选者 `text.trim() === ''` → 返回空串（显式静默，用来给兜底开例外）；
 5. 全都不中 → 空串 → 原生 system prompt。

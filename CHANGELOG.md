@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Resolution is specificity-first.** A session-id rule now outranks a workspace rule and an exact value
+  outranks a pattern (`targetSpecificity`); list order only breaks ties between equally specific rules. A persona
+  pointed at one exact session therefore beats a persona pointed at the whole directory, whatever the order.
+
 - The session picker shows how often each session was talked to (`sessionStats.turns` from the same
   projection read as the title), beside the short id and age; picker menus are widened to fit that row.
 

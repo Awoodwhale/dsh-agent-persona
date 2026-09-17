@@ -16,7 +16,7 @@ const storePath = join(stateDir, 'personas.json')
 const heartbeatPath = join(stateDir, 'state.json')
 
 const mod = await import(new URL('../lib/index.js', import.meta.url).href)
-const { applyPersonaMode, collectSessionHistory, collectTargets, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
+const { applyPersonaMode, collectSessionHistory, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
 
 const WS = '/tmp/ws/web-app'
 const OTHER = '/tmp/ws/docs'
@@ -54,7 +54,27 @@ assert.equal(resolvePersona(personas, { cwd: '/tmp/elsewhere', sessionId: 'sessi
 assert.equal(resolvePersona(personas, {}).persona.id, 'fallback', 'an agent-less assembly also falls to the catch-all')
 assert.equal(resolvePersona([P({ enabled: false, targets: [] })], { cwd: WS }).reason, 'none', 'disabled personas are skipped')
 assert.equal(resolvePersona([], { cwd: WS }).reason, 'none')
-assert.equal(resolvePersona([personas[1], personas[0], personas[2], personas[3]], { cwd: WS, sessionId: 'im-bot-x' }).persona.id, 'ws', 'reordering changes the winner')
+assert.equal(resolvePersona([personas[1], personas[0], personas[2], personas[3]], { cwd: WS, sessionId: 'im-bot-x' }).persona.id, 'specific', 'a session rule beats a workspace rule regardless of order')
+
+// ── specificity decides, list order only breaks ties
+assert.equal(targetSpecificity({ kind: 'sessionId', match: 'exact' }), 8)
+assert.equal(targetSpecificity({ kind: 'sessionId', match: 'prefix' }), 7)
+assert.equal(targetSpecificity({ kind: 'sessionId', match: 'regex' }), 6)
+assert.equal(targetSpecificity({ kind: 'workspace', match: 'exact' }), 4)
+assert.equal(targetSpecificity({ kind: 'workspace', match: 'contains' }), 2)
+assert.equal(targetSpecificity({ kind: undefined }), 0)
+
+// the reported case: a workspace persona above a session persona in the list
+const overlapping = [
+  P({ id: 'dir', name: 'dir', targets: [T('workspace', 'exact', WS)] }),
+  P({ id: 'one', name: 'one', targets: [T('sessionId', 'exact', 'chat-1')] }),
+]
+const inDir = { cwd: WS, sessionId: 'chat-1' }
+assert.equal(resolvePersona(overlapping, inDir).persona.id, 'one', 'the session rule wins even when listed second')
+assert.equal(resolvePersona(overlapping, inDir).specificity, 8, 'and reports how specific the winner was')
+assert.equal(resolvePersona(overlapping, { cwd: WS, sessionId: 'chat-2' }).persona.id, 'dir', 'other sessions in that directory still get the directory persona')
+assert.equal(resolvePersona([P({ id: 'wide', targets: [T('workspace', 'prefix', WS)] }), P({ id: 'narrow', targets: [T('workspace', 'exact', WS)] })], { cwd: WS }).persona.id, 'narrow', 'an exact workspace beats a prefix')
+assert.equal(resolvePersona([P({ id: 'second', targets: [T('workspace', 'exact', WS)] }), P({ id: 'first', targets: [T('workspace', 'exact', OTHER)] })], { cwd: WS }).persona.id, 'second', 'equal specificity falls back to list order')
 
 // ── personaTextFor: an empty winning text means "no persona here"
 const silencing = [P({ id: 'quiet', text: '', targets: [T('workspace', 'exact', WS)] }), P({ id: 'fallback', text: 'FALLBACK', targets: [] })]
@@ -342,7 +362,7 @@ assert.ok(warnings.some((message) => /not a persona store/.test(message)))
 
 console.log(JSON.stringify({
   ok: true,
-  checks: 106,
+  checks: 117,
   section: { name: section.name, order: section.order },
   stateDir,
 }))

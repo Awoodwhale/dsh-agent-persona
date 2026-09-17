@@ -65,7 +65,7 @@ Hit **新建人设** → pick workspaces or sessions under 「用在哪些地方
 - For prefix / regex / substring matching, choose **自己输入…** and the row becomes a text input.
 - A collapsed card lists its scope on a **second line**, workspaces and sessions apart, using workspace and
   session names (hover for the raw path / rule); a persona with no rows reads 「默认：…」.
-- **Order is priority.** Reordering lives in the card's `⋯` menu (move up / move down); the first match from the top wins.
+- **The more specific rule wins**: a session-id rule beats a workspace rule, and an exact value beats a prefix / regex. List order only breaks ties between equally specific rules (reordering lives in the card's `⋯` menu). So a persona scoped to one exact session beats one scoped to the whole directory, even when it sits lower in the list.
 - **A persona with no rows is the default persona**: it takes every session the personas above did not claim.
   Keep it at the bottom.
 - The other way round, if somewhere should get **no** persona: give it a row and leave the text empty. An empty
