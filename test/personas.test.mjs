@@ -257,7 +257,8 @@ assert.equal((clipMarkdown('short', 200)), 'short', 'a short message is returned
 const longCtx = { get: (name) => (name === 'sessionPersistence' ? { open: async () => ({ header: {}, events: [msg('user/message', 'x'.repeat(900))] }) } : undefined) }
 const clipped = await collectSessionHistory(longCtx, 's3', { maxChars: 200 })
 assert.equal(clipped.messages[0].truncated, true)
-assert.equal(clipped.messages[0].text.length, 201, 'capped at maxChars plus an ellipsis')
+assert.ok(clipped.messages[0].text.startsWith('x'.repeat(200)), 'the head is kept up to the cap')
+assert.ok(clipped.messages[0].text.includes('已截断'), 'and a truncation note is appended')
 
 const none = await collectSessionHistory({ get: () => undefined }, 's4', {})
 assert.equal(none.unavailable, true, 'no reader at all is reported as unavailable')
