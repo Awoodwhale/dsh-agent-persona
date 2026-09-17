@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2026-09-17
 
+### Fixed
+
+- 跳到最新 did nothing: the runtime forwarded a hand-written subset of the history options and dropped ,
+  so the call degraded to a normal head read while the dialog labelled it as the tail. The forwarding is now an
+  exported, asserted .
 ### Added
 
 - **展开全文 per bubble.** Every message now carries  (its event index in the log), so a message that was
