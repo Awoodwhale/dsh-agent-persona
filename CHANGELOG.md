@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   windowed (`sessionHistory({id, offset, events})`) so the log is never read up front: the page shows what it
   got, reports 已显示 N 条, and only reads the next window when 继续加载 is pressed. Messages are capped at 4000
   characters. Picker rows carry a short session id and the session's age on the right.
+- The page is titled with the Agent-preset glyph (the same one the settings shell uses for 「Agent 预设」); the
+  settings **nav** icon itself is the shell's and cannot be set by a plugin — `settings.section` accepts only
+  `id` / `order` / `label`, and the shell falls back to one generic glyph for every id it does not ship.
+- Creating a persona moved out of the page's top-right corner into a dashed **新建人设** row at the end of the
+  list (the conventional place for an "add" affordance), keyboard reachable via Enter/Space; the header is now
+  just the title and the count.
 - A collapsed card shows its scope on a **second line**, workspaces and sessions apart, with human names
   (workspace titles, session titles) instead of raw paths; the picker marks a claimed target as 当前人设 when it
   belongs to the persona being edited, instead of appearing to be someone else's.
