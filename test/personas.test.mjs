@@ -126,22 +126,55 @@ assert.deepEqual(bare, { workspaces: [], sessions: [] }, 'a deployment without t
 assert.equal(bareWarnings.length, 2, 'and says why (workspaces, sessions)')
 assert.ok(bareWarnings.every((message) => /must be typed/.test(message)))
 
-// ── session history: a live handle, a cold handle that needs read(), and no reader
+// ── session history: one window per call, with nextOffset for "load more"
 const msg = (type, text) => ({ type, data: { content: [{ text }] } })
-const liveCtx = { get: (n) => (n === 'sessionPersistence' ? { open: async () => ({ header: { cwd: WS, createdAt: 5 }, events: [msg('user/message', '第一条'), msg('tool/call', 'x'), msg('assistant/message', '回你')] }) } : undefined) }
-const live = await collectSessionHistory(liveCtx, 's1', 8)
+const liveCtx = {
+  get: (name) => (name === 'sessionPersistence'
+    ? { open: async () => ({ header: { cwd: WS, createdAt: 5 }, events: [msg('user/message', '第一条'), msg('tool/call', 'x'), msg('assistant/message', '回你')] }) }
+    : undefined),
+}
+const live = await collectSessionHistory(liveCtx, 's1', {})
 assert.equal(live.available, true)
 assert.equal(live.cwd, WS)
 assert.deepEqual(live.messages, [{ role: 'user', text: '第一条' }, { role: 'assistant', text: '回你' }], 'tool events are skipped')
-const coldCtx = { get: (n) => (n === 'sessionPersistence' ? { open: async () => ({ header: { cwd: OTHER }, events: [], read: async (offset, length) => ({ events: [msg('user/message', `cold-${offset}-${length}`)] }) }) } : undefined) }
-const cold = await collectSessionHistory(coldCtx, 's2', 8)
-assert.equal(cold.available, true, 'a cold handle is read through read()')
-assert.equal(cold.messages[0].text, 'cold-0-400')
-const none = await collectSessionHistory({ get: () => undefined }, 's3', 8)
+assert.equal(live.done, true, 'an in-memory event list is one complete window')
+
+// a read() based backend: the window slides and the page reports what is left
+const many = Array.from({ length: 5 }, (_, i) => msg('user/message', `m${i}`))
+let reads = []
+const pagedCtx = {
+  get: (name) => (name === 'sessionPersistence'
+    ? {
+      open: async () => ({
+        header: { cwd: OTHER, createdAt: 7 },
+        events: [],
+        read: async (offset, length) => {
+          reads.push(`${offset}+${length}`)
+          return { events: many.slice(offset, offset + length), eventCount: many.length }
+        },
+      }),
+    }
+    : undefined),
+}
+const page1 = await collectSessionHistory(pagedCtx, 's2', { offset: 0, events: 2 })
+assert.deepEqual(page1.messages.map((m) => m.text), ['m0', 'm1'])
+assert.equal(page1.nextOffset, 2, 'the page says where to continue')
+assert.equal(page1.done, false)
+const page2 = await collectSessionHistory(pagedCtx, 's2', { offset: page1.nextOffset, events: 2 })
+assert.deepEqual(page2.messages.map((m) => m.text), ['m2', 'm3'])
+const page3 = await collectSessionHistory(pagedCtx, 's2', { offset: page2.nextOffset, events: 2 })
+assert.equal(page3.done, true, 'a short window ends the conversation')
+assert.deepEqual(reads, ['0+2', '2+2', '4+2'], 'each page asks the backend for exactly one window')
+
+// one huge message cannot blow up the payload
+const longCtx = { get: (name) => (name === 'sessionPersistence' ? { open: async () => ({ header: {}, events: [msg('user/message', 'x'.repeat(900))] }) } : undefined) }
+const clipped = await collectSessionHistory(longCtx, 's3', { maxChars: 200 })
+assert.equal(clipped.messages[0].truncated, true)
+assert.equal(clipped.messages[0].text.length, 201, 'capped at maxChars plus an ellipsis')
+
+const none = await collectSessionHistory({ get: () => undefined }, 's4', {})
 assert.equal(none.unavailable, true, 'no reader at all is reported as unavailable')
-assert.equal((await collectSessionHistory({ get: () => undefined }, '', 8)).unavailable, true, 'an empty id is refused')
-const capped = await collectSessionHistory({ get: (n) => (n === 'sessionPersistence' ? { open: async () => ({ header: {}, events: Array.from({ length: 30 }, (_, i) => msg('user/message', `m${i}`)) }) } : undefined) }, 's4', 3)
-assert.equal(capped.messages.length, 3, 'the limit trims the tail')
+assert.equal((await collectSessionHistory({ get: () => undefined }, '', {})).unavailable, true, 'an empty id is refused')
 
 // ── injection modes: append leaves the prompt alone, replace drops the deployment persona
 const prefixSection = (text) => ({ name: 'deployment:persona-prefix', text })
@@ -240,7 +273,7 @@ assert.ok(warnings.some((message) => /not a persona store/.test(message)))
 
 console.log(JSON.stringify({
   ok: true,
-  checks: 85,
+  checks: 87,
   section: { name: section.name, order: section.order },
   stateDir,
 }))

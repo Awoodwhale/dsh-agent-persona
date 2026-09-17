@@ -23,8 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Injection modes** `append` (default) and `replace`, implemented by listening to the
   `system-prompt/assemble` waterfall and dropping the deployment's own `deployment:persona-prefix` line for
   `replace`. A preset or subagent persona that shadowed the section is never overwritten.
-- **Session history peek**: pick a session, hit the button next to the picker, and read its last messages
-  (`sessionHistory`) before pointing a persona at it.
+- **Session history**: pick a session, hit the button next to the picker, and read that conversation. Reads are
+  windowed (`sessionHistory({id, offset, events})`) so the log is never read up front: the page shows what it
+  got, reports 已显示 N 条, and only reads the next window when 继续加载 is pressed. Messages are capped at 4000
+  characters. Picker rows carry a short session id and the session's age on the right.
 - The scope pickers can go back from 「自己输入…」 to the list, and the match mode only appears in that
   manual mode.
 - Session entries in the picker are labelled with their DSH title, and with the session's first prompt (or
@@ -56,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is set to use, overridable per deployment with `tuneProvider` / `tuneModel`. It
   only ever produces a proposal.
 - **Zero runtime dependencies**: a plain ESM host half plus a hand-written
-  `__ModuleLoader__` client half (no build step), with 85 offline assertions in
+  `__ModuleLoader__` client half (no build step), with 87 offline assertions in
   `npm test`.
 
 [Unreleased]: https://github.com/awoodwhale/dsh-agent-persona/compare/v0.1.0...HEAD

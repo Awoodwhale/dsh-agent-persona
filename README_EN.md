@@ -81,8 +81,11 @@ compared statically, so for those the first match in list order still wins.)
 
 The picker also shows occupancy: workspaces and sessions already claimed are labelled 「已被「X」使用」.
 
-Once a session is picked, the button next to the picker opens a short read of that session's conversation, so you
-can judge whether the persona belongs there.
+Once a session is picked, the button next to the picker opens that session's conversation: one window (a few
+hundred events) is read and shown with an "已显示 N 条" count, and 继续加载 (load more) reads the next window only
+if you ask — the whole log is never read up front. Each message is capped at 4000 characters (marked 已截断 when
+clipped), and every row in the picker shows a short session id plus its age on the right, so two sessions with
+the same title stay tellable apart.
 
 ## Injection mode: append or replace
 
@@ -155,7 +158,7 @@ proposal: it lands in the editor when you hit 采用/追加, and is written to d
 ```
 lib/index.js      host half: store, matching, section, remote service (this is the source, no build step)
 lib/client.js     client half: the settings page, a hand-written __ModuleLoader__ module
-test/             85 assertions, Node built-ins only
+test/             87 assertions, Node built-ins only
 docs/             architecture, development notes, design decisions
 scripts/          installers
 ```
