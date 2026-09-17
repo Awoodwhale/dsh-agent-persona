@@ -31,6 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   windowed (`sessionHistory({id, offset, events})`) so the log is never read up front: the page shows what it
   got, reports 已显示 N 条, and only reads the next window when 继续加载 is pressed. Messages are capped at 4000
   characters. Picker rows carry a short session id and the session's age on the right.
+- **Search** appears once a profile holds four or more personas and filters on name, workspace title/path and
+  session title/id, with an explicit 「没有匹配「…」的人设」 state.
+- **Drag to reorder**: a grip on each card header drags it to an absolute position (new `reorderPersona` remote
+  method, `reorderPersonas` is the exported pure function); the ⋯ menu's 上移/下移 stay as the keyboard path,
+  and dragging is disabled while a search filter is active so a drop target is never ambiguous.
+- **Conflicts are visible**: a persona whose exact row would be shadowed by an *earlier* persona's prefix /
+  regex / contains row gets a 「可能被覆盖」 tag (hover explains which rule wins), plus a summary line above the
+  list. Exact duplicates never reach this state — saving takes the claim over instead.
+- **The save shortcut is visible**: a ⌘S / Ctrl+S key chip sits next to the save button and the button carries
+  the same hint in its tooltip.
 - The persona counts are two tags — 「N 条人设」 and a success-toned 「N 条在用」 — instead of a sentence in the
   meta line, and the store path moved to the right of them.
 - **Unsaved changes are visible**: the open card carries a 未保存 tag while its draft differs from what is

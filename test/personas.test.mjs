@@ -16,7 +16,7 @@ const storePath = join(stateDir, 'personas.json')
 const heartbeatPath = join(stateDir, 'state.json')
 
 const mod = await import(new URL('../lib/index.js', import.meta.url).href)
-const { applyPersonaMode, collectSessionHistory, collectTargets, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
+const { applyPersonaMode, collectSessionHistory, collectTargets, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
 
 const WS = '/tmp/ws/web-app'
 const OTHER = '/tmp/ws/docs'
@@ -214,6 +214,19 @@ assert.deepEqual(store.personas[0].targets, [T('sessionId', 'prefix', 'keep-')],
 assert.deepEqual(store.personas[1].targets, [T('workspace', 'exact', OTHER)], 'other personas are untouched')
 assert.deepEqual(takeOverClaims({ personas: [P({ id: 'a', targets: [] })] }, P({ id: 'b', targets: [] })), [], 'claiming nothing moves nothing')
 
+// ── drag and drop reordering takes an absolute position
+const order = () => store3.personas.map((persona) => persona.id)
+const store3 = { version: 1, personas: [P({ id: 'a' }), P({ id: 'b' }), P({ id: 'c' })] }
+assert.equal(reorderPersonas(store3, 'a', 2), true, 'moving down works')
+assert.deepEqual(order(), ['b', 'c', 'a'])
+assert.equal(reorderPersonas(store3, 'a', -9), true, 'a negative index clamps to the top')
+assert.deepEqual(order(), ['a', 'b', 'c'])
+assert.equal(reorderPersonas(store3, 'a', 99), true, 'an oversized index clamps to the bottom')
+assert.deepEqual(order(), ['b', 'c', 'a'])
+assert.equal(reorderPersonas(store3, 'a', 2), false, 'dropping where it already is changes nothing')
+assert.equal(reorderPersonas(store3, 'ghost', 0), false, 'an unknown id is refused')
+assert.deepEqual(order(), ['b', 'c', 'a'], 'and the order is untouched')
+
 // ── the plugin through apply(): section, injection, heartbeat, live re-read
 mkdirSync(stateDir, { recursive: true })
 writeFileSync(storePath, JSON.stringify({
@@ -286,7 +299,7 @@ assert.ok(warnings.some((message) => /not a persona store/.test(message)))
 
 console.log(JSON.stringify({
   ok: true,
-  checks: 89,
+  checks: 98,
   section: { name: section.name, order: section.order },
   stateDir,
 }))
