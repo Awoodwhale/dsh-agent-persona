@@ -286,7 +286,7 @@ assert.ok(warnings.some((message) => /not a persona store/.test(message)))
 
 console.log(JSON.stringify({
   ok: true,
-  checks: 87,
+  checks: 89,
   section: { name: section.name, order: section.order },
   stateDir,
 }))

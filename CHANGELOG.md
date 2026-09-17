@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   windowed (`sessionHistory({id, offset, events})`) so the log is never read up front: the page shows what it
   got, reports 已显示 N 条, and only reads the next window when 继续加载 is pressed. Messages are capped at 4000
   characters. Picker rows carry a short session id and the session's age on the right.
+- A collapsed card shows its scope on a **second line**, workspaces and sessions apart, with human names
+  (workspace titles, session titles) instead of raw paths; the picker marks a claimed target as 当前人设 when it
+  belongs to the persona being edited, instead of appearing to be someone else's.
+- The conversation dialog is a two-sided chat (your input right, the agent left, both in bubbles) and hides
+  plugin-injected user-side content — `AGENTS.md` (13k chars in a real session), runtime snapshots, the skill
+  catalog, goal rounds — reporting only 「已隐藏 N 条插件注入内容」.
 - The scope pickers can go back from 「自己输入…」 to the list, and the match mode only appears in that
   manual mode.
 - Session entries in the picker are labelled with their DSH title, and with the session's first prompt (or
@@ -58,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is set to use, overridable per deployment with `tuneProvider` / `tuneModel`. It
   only ever produces a proposal.
 - **Zero runtime dependencies**: a plain ESM host half plus a hand-written
-  `__ModuleLoader__` client half (no build step), with 87 offline assertions in
+  `__ModuleLoader__` client half (no build step), with 89 offline assertions in
   `npm test`.
 
 [Unreleased]: https://github.com/awoodwhale/dsh-agent-persona/compare/v0.1.0...HEAD

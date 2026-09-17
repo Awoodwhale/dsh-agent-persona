@@ -152,7 +152,7 @@ skill 目录、goal 轮次说明）都是插件注入的，实测一条 `AGENTS.
 ```
 lib/index.js      host 半边：存储、匹配、section、远程服务（就是源码，没有构建产物）
 lib/client.js     client 半边：设置页，手写的 __ModuleLoader__ 模块
-test/             87 条断言，只用 Node 内置模块
+test/             89 条断言，只用 Node 内置模块
 docs/             架构、开发笔记、设计决策
 scripts/          安装脚本
 ```
