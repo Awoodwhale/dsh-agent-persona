@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The settings section paints its title and description (and a skeleton card list) before any host call
+  resolves, instead of showing a bare 「加载中…」; a mount race with the remote namespace retries briefly rather
+  than flashing an error.
+
 - Renamed the package from `dsh-workspace-persona` to **`dsh-agent-persona`** (settings page: 「Agent人设」).
   Everything it writes now lives in `$DSH_HOME/dsh-agent-persona/`.
 - The collapsed card keeps only what reads at a glance — chevron, state dot, name, state, scope chips — and
