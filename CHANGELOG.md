@@ -31,6 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   windowed (`sessionHistory({id, offset, events})`) so the log is never read up front: the page shows what it
   got, reports 已显示 N 条, and only reads the next window when 继续加载 is pressed. Messages are capped at 4000
   characters. Picker rows carry a short session id and the session's age on the right.
+- The persona counts are two tags — 「N 条人设」 and a success-toned 「N 条在用」 — instead of a sentence in the
+  meta line, and the store path moved to the right of them.
+- **Unsaved changes are visible**: the open card carries a 未保存 tag while its draft differs from what is
+  stored, and switching cards or collapsing reports 「改动没有保存」 in the status line instead of dropping it
+  silently.
+- The status line is sticky at the bottom of the page so save/error feedback stays visible while the list
+  scrolls; icon buttons grew from 24px to 28px hit targets.
 - The section header now matches the shipped settings pages exactly: an `<h2>` title at 18px/600, a 13px
   `p` intro in the muted label colour, no leading icon (the count moved into the meta line). Measured side by
   side against the official 「Agent 预设」 page in the same DOM: identical font size, weight and colour.
