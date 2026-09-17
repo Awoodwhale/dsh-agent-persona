@@ -93,6 +93,35 @@ assert.deepEqual(targets.sessions.map((session) => session.id), ['s2', 's1'], 's
 assert.equal(targets.sessions[0].title, '第二条会话', 'a session title rides along when the host can produce one')
 assert.equal(targets.sessions[0].cwd, OTHER)
 
+// titles: DSH's projection cache wins, its file is a fallback, the first message is the last resort
+const projCtx = { get: (name) => ({
+  sessionPersistence: { list: () => [{ header: { id: 'p1', cwd: WS, createdAt: 10 } }] },
+  sessionProjectionCache: { recordFor: (id) => (id === 'p1' ? { rows: { title: { val: '投影标题' } } } : undefined) },
+}[name]) }
+assert.equal((await collectTargets(projCtx, {})).sessions[0].title, '投影标题', 'the projection cache is the first title source')
+
+mkdirSync(join(home, 'storages', 'session_projcache', 'sessions'), { recursive: true })
+writeFileSync(join(home, 'storages', 'session_projcache', 'sessions', 'f1.json'), JSON.stringify({ record: { rows: { title: { val: '文件标题' } } } }))
+const fileCtx = { get: (name) => (name === 'sessionPersistence' ? { list: () => [{ header: { id: 'f1', cwd: WS, createdAt: 11 } }] } : undefined) }
+assert.equal((await collectTargets(fileCtx, {})).sessions[0].title, '文件标题', 'the projection file is read when the service is absent')
+
+let coldReads = 0
+const manyIds = Array.from({ length: 15 }, (_, i) => `c${i}`)
+const coldTitleCtx = { get: (name) => (name === 'sessionPersistence' ? {
+  list: () => manyIds.map((id, i) => ({ header: { id, cwd: WS, createdAt: i } })),
+  open: async () => {
+    coldReads += 1
+    return { header: {}, events: [{ type: 'user/message', data: { content: [{ text: '帮我看看这个奇怪的构建报错到底是哪里来的，我已经排查了两小时也没找到原因，怀疑是依赖版本冲突而且只在 CI 上复现本地怎么都跑不出来' }] } }] }
+  },
+} : undefined) }
+const derived = await collectTargets(coldTitleCtx, {})
+assert.match(derived.sessions[0].title, /^帮我看看这个奇怪的构建报错/, 'the first user message is the last resort')
+assert.ok(derived.sessions[0].title.endsWith('…'), 'and it is truncated')
+assert.equal(coldReads, 12, 'only the newest 12 sessions pay for a read')
+const readsSoFar = coldReads
+await collectTargets(coldTitleCtx, {})
+assert.equal(coldReads, readsSoFar, 'a derived title is cached for the process')
+
 const bareWarnings = []
 const bare = await collectTargets({ get: () => undefined }, { warn: (message) => bareWarnings.push(message) })
 assert.deepEqual(bare, { workspaces: [], sessions: [] }, 'a deployment without those services yields empty lists')
@@ -213,7 +242,7 @@ assert.ok(warnings.some((message) => /not a persona store/.test(message)))
 
 console.log(JSON.stringify({
   ok: true,
-  checks: 76,
+  checks: 82,
   section: { name: section.name, order: section.order },
   stateDir,
 }))

@@ -153,7 +153,7 @@ proposal: it lands in the editor when you hit 采用/追加, and is written to d
 ```
 lib/index.js      host half: store, matching, section, remote service (this is the source, no build step)
 lib/client.js     client half: the settings page, a hand-written __ModuleLoader__ module
-test/             76 assertions, Node built-ins only
+test/             82 assertions, Node built-ins only
 docs/             architecture, development notes, design decisions
 scripts/          installers
 ```
