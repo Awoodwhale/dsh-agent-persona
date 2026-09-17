@@ -16,7 +16,7 @@ const storePath = join(stateDir, 'personas.json')
 const heartbeatPath = join(stateDir, 'state.json')
 
 const mod = await import(new URL('../lib/index.js', import.meta.url).href)
-const { applyPersonaMode, collectTargets, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
+const { applyPersonaMode, collectSessionHistory, collectTargets, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
 
 const WS = '/tmp/ws/web-app'
 const OTHER = '/tmp/ws/docs'
@@ -98,6 +98,23 @@ const bare = await collectTargets({ get: () => undefined }, { warn: (message) =>
 assert.deepEqual(bare, { workspaces: [], sessions: [] }, 'a deployment without those services yields empty lists')
 assert.equal(bareWarnings.length, 2, 'and says why (workspaces, sessions)')
 assert.ok(bareWarnings.every((message) => /must be typed/.test(message)))
+
+// ── session history: a live handle, a cold handle that needs read(), and no reader
+const msg = (type, text) => ({ type, data: { content: [{ text }] } })
+const liveCtx = { get: (n) => (n === 'sessionPersistence' ? { open: async () => ({ header: { cwd: WS, createdAt: 5 }, events: [msg('user/message', '第一条'), msg('tool/call', 'x'), msg('assistant/message', '回你')] }) } : undefined) }
+const live = await collectSessionHistory(liveCtx, 's1', 8)
+assert.equal(live.available, true)
+assert.equal(live.cwd, WS)
+assert.deepEqual(live.messages, [{ role: 'user', text: '第一条' }, { role: 'assistant', text: '回你' }], 'tool events are skipped')
+const coldCtx = { get: (n) => (n === 'sessionPersistence' ? { open: async () => ({ header: { cwd: OTHER }, events: [], read: async (offset, length) => ({ events: [msg('user/message', `cold-${offset}-${length}`)] }) }) } : undefined) }
+const cold = await collectSessionHistory(coldCtx, 's2', 8)
+assert.equal(cold.available, true, 'a cold handle is read through read()')
+assert.equal(cold.messages[0].text, 'cold-0-400')
+const none = await collectSessionHistory({ get: () => undefined }, 's3', 8)
+assert.equal(none.unavailable, true, 'no reader at all is reported as unavailable')
+assert.equal((await collectSessionHistory({ get: () => undefined }, '', 8)).unavailable, true, 'an empty id is refused')
+const capped = await collectSessionHistory({ get: (n) => (n === 'sessionPersistence' ? { open: async () => ({ header: {}, events: Array.from({ length: 30 }, (_, i) => msg('user/message', `m${i}`)) }) } : undefined) }, 's4', 3)
+assert.equal(capped.messages.length, 3, 'the limit trims the tail')
 
 // ── injection modes: append leaves the prompt alone, replace drops the deployment persona
 const prefixSection = (text) => ({ name: 'deployment:persona-prefix', text })
@@ -196,7 +213,7 @@ assert.ok(warnings.some((message) => /not a persona store/.test(message)))
 
 console.log(JSON.stringify({
   ok: true,
-  checks: 66,
+  checks: 76,
   section: { name: section.name, order: section.order },
   stateDir,
 }))

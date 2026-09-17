@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is set to use, overridable per deployment with `tuneProvider` / `tuneModel`. It
   only ever produces a proposal.
 - **Zero runtime dependencies**: a plain ESM host half plus a hand-written
-  `__ModuleLoader__` client half (no build step), with 52 offline assertions in
+  `__ModuleLoader__` client half (no build step), with 76 offline assertions in
   `npm test`.
 
 [Unreleased]: https://github.com/awoodwhale/dsh-agent-persona/compare/v0.1.0...HEAD
