@@ -16,7 +16,7 @@ const storePath = join(stateDir, 'personas.json')
 const heartbeatPath = join(stateDir, 'state.json')
 
 const mod = await import(new URL('../lib/index.js', import.meta.url).href)
-const { applyPersonaMode, collectSessionHistory, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
+const { applyPersonaMode, clipMarkdown, collectSessionHistory, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
 
 const WS = '/tmp/ws/web-app'
 const OTHER = '/tmp/ws/docs'
@@ -244,6 +244,14 @@ const mixedCtx = { get: (name) => (name === 'sessionPersistence' ? { open: async
 const mixed = await collectSessionHistory(mixedCtx, 's5', {})
 assert.deepEqual(mixed.messages.map((m) => m.text), ['我真实的输入', '没有 source 的输入视为用户输入'], 'injected user-side events are hidden')
 assert.equal(mixed.skipped, 2, 'and counted, so the page can say so')
+
+// clipping a message must not leave an open code fence behind
+const long = `开头\n\n\u0060\u0060\u0060js\nconst a = 1\nconst b = 2\n`.padEnd(300, 'x')
+const clippedLong = clipMarkdown(long, 200)
+assert.ok(clippedLong.startsWith(long.slice(0, 200)), 'the head is kept verbatim')
+assert.equal((clippedLong.match(/^\u0060\u0060\u0060/gm) ?? []).length % 2, 0, 'an odd fence is closed, so the rest of the message still renders')
+assert.ok(clippedLong.includes('已截断'), 'and the reader is told it was cut')
+assert.equal((clipMarkdown('short', 200)), 'short', 'a short message is returned untouched')
 
 // one huge message cannot blow up the payload
 const longCtx = { get: (name) => (name === 'sessionPersistence' ? { open: async () => ({ header: {}, events: [msg('user/message', 'x'.repeat(900))] }) } : undefined) }
