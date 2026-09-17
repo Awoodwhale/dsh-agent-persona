@@ -93,6 +93,30 @@ assert.deepEqual(targets.sessions.map((session) => session.id), ['s2', 's1'], 's
 assert.equal(targets.sessions[0].title, '第二条会话', 'a session title rides along when the host can produce one')
 assert.equal(targets.sessions[0].cwd, OTHER)
 
+// only interactive sessions are listed: sub-agents and archived ones are hidden
+const scopeCtx = { get: (name) => ({
+  sessionPersistence: {
+    list: () => [
+      { header: { id: 'keep1', cwd: WS, createdAt: 9 } },
+      { header: { id: 'sub1', cwd: WS, createdAt: 8, origin: 'subagent', delegationDepth: 1, parentSession: 'keep1' } },
+      { header: { id: 'sub2', cwd: WS, createdAt: 7, delegationDepth: 2 } },
+      { header: { id: 'gone1', cwd: WS, createdAt: 6 } },
+    ],
+  },
+  workspaceRegistry: { archivedSessionIds: ['gone1'], list: () => [{ path: WS, title: 'WS', sessionIds: [] }] },
+}[name]) }
+const scoped = await collectTargets(scopeCtx, {})
+assert.deepEqual(scoped.sessions.map((session) => session.id), ['keep1'], 'only conversations a human can open are listed')
+assert.deepEqual(scoped.hidden, { subagents: 2, archived: 1 }, 'and the page can say what it hid')
+
+// the workspace store file is the fallback for the archived list
+mkdirSync(join(home, 'storages'), { recursive: true })
+writeFileSync(join(home, 'storages', 'workspace.json'), JSON.stringify({ record: { rows: { global: { val: { archivedSessionIds: ['gone2'] } }, tables: { val: { workspaces: { w1: { archivedSessionIds: ['gone3'] } } } } } } }))
+const fileScopeCtx = { get: (name) => (name === 'sessionPersistence' ? { list: () => [{ header: { id: 'gone2', cwd: WS, createdAt: 2 } }, { header: { id: 'gone3', cwd: WS, createdAt: 1 } }, { header: { id: 'stay', cwd: WS, createdAt: 3 } }] } : undefined) }
+const fromFile = await collectTargets(fileScopeCtx, {})
+assert.deepEqual(fromFile.sessions.map((session) => session.id), ['stay'], 'archived ids are read from the workspace store when the service stays quiet')
+assert.equal(fromFile.hidden.archived, 2)
+
 // titles: DSH's projection cache wins, its file is a fallback, the first message is the last resort
 const projCtx = { get: (name) => ({
   sessionPersistence: { list: () => [{ header: { id: 'p1', cwd: WS, createdAt: 10 } }] },
@@ -124,7 +148,7 @@ assert.ok(latestLabel.endsWith('…') && latestLabel.length === 49, 'and it is t
 
 const bareWarnings = []
 const bare = await collectTargets({ get: () => undefined }, { warn: (message) => bareWarnings.push(message) })
-assert.deepEqual(bare, { workspaces: [], sessions: [] }, 'a deployment without those services yields empty lists')
+assert.deepEqual(bare, { workspaces: [], sessions: [], hidden: { subagents: 0, archived: 0 } }, 'a deployment without those services yields empty lists')
 assert.equal(bareWarnings.length, 2, 'and says why (workspaces, sessions)')
 assert.ok(bareWarnings.every((message) => /must be typed/.test(message)))
 
@@ -309,7 +333,7 @@ assert.ok(warnings.some((message) => /not a persona store/.test(message)))
 
 console.log(JSON.stringify({
   ok: true,
-  checks: 100,
+  checks: 104,
   section: { name: section.name, order: section.order },
   stateDir,
 }))

@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Sub-agent and archived sessions no longer appear in the picker.** A sub-agent session (spawned by the
+  model: `origin: 'subagent'` or `delegationDepth > 0`) and an archived one cannot be opened or typed into
+  from the sidebar, so listing them invited personas that could never apply. Archived ids come from the
+  workspace registry, falling back to the workspace store file. The page reports how many were hidden, so a
+  missing session is never a mystery.
+
 - **Sessions could not be read at all**: `sessionPersistence.open(id, access)` takes the access mode as a
   second, required argument; the reader called `open(id)` and every candidate failed, so the conversation
   dialog always reported "no reader". It now opens with `'read'` (never taking write ownership) and retries
