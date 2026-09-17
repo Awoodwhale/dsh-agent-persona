@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Empty sessions are no longer offered.** A session created with a preset but never typed into
+  (`sessionListMetadata.blank`, the same flag the sidebar hides on — found as a 5-event, 0.5 KB,
+  `agentPreset: 'cordis'` session) holds no conversation to give a persona, so the picker drops it and counts it
+  in the hidden tally.
+
 - **Sub-agent and archived sessions no longer appear in the picker.** A sub-agent session (spawned by the
   model: `origin: 'subagent'` or `delegationDepth > 0`) and an archived one cannot be opened or typed into
   from the sidebar, so listing them invited personas that could never apply. Archived ids come from the

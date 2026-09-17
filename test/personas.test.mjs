@@ -107,7 +107,7 @@ const scopeCtx = { get: (name) => ({
 }[name]) }
 const scoped = await collectTargets(scopeCtx, {})
 assert.deepEqual(scoped.sessions.map((session) => session.id), ['keep1'], 'only conversations a human can open are listed')
-assert.deepEqual(scoped.hidden, { subagents: 2, archived: 1 }, 'and the page can say what it hid')
+assert.deepEqual(scoped.hidden, { subagents: 2, archived: 1, blank: 0 }, 'and the page can say what it hid')
 
 // the workspace store file is the fallback for the archived list
 mkdirSync(join(home, 'storages'), { recursive: true })
@@ -146,9 +146,18 @@ const latestLabel = (await collectTargets(latestCtx, {})).sessions[0].title
 assert.match(latestLabel, /^最后我问的是这个很长的问题/, 'the latest prompt is used when nothing else exists')
 assert.ok(latestLabel.endsWith('…') && latestLabel.length === 49, 'and it is trimmed to 48 characters plus an ellipsis')
 
+// a session nobody ever typed into is not offered (the sidebar hides it too)
+writeFileSync(join(home, 'storages', 'session_projcache', 'sessions', 'blank1.json'), JSON.stringify({
+  record: { rows: { sessionListMetadata: { val: { blank: true, lastPromptAt: null } }, sessionStats: { val: { turns: 0 } } } },
+}))
+const blankCtx = { get: (name) => (name === 'sessionPersistence' ? { list: () => [{ header: { id: 'blank1', cwd: WS, createdAt: 21 } }, { header: { id: 'real1', cwd: WS, createdAt: 20 } }] } : undefined) }
+const blankTargets = await collectTargets(blankCtx, {})
+assert.deepEqual(blankTargets.sessions.map((session) => session.id), ['real1'], 'an empty session is dropped')
+assert.equal(blankTargets.hidden.blank, 1, 'and reported as hidden')
+
 const bareWarnings = []
 const bare = await collectTargets({ get: () => undefined }, { warn: (message) => bareWarnings.push(message) })
-assert.deepEqual(bare, { workspaces: [], sessions: [], hidden: { subagents: 0, archived: 0 } }, 'a deployment without those services yields empty lists')
+assert.deepEqual(bare, { workspaces: [], sessions: [], hidden: { subagents: 0, archived: 0, blank: 0 } }, 'a deployment without those services yields empty lists')
 assert.equal(bareWarnings.length, 2, 'and says why (workspaces, sessions)')
 assert.ok(bareWarnings.every((message) => /must be typed/.test(message)))
 
@@ -333,7 +342,7 @@ assert.ok(warnings.some((message) => /not a persona store/.test(message)))
 
 console.log(JSON.stringify({
   ok: true,
-  checks: 104,
+  checks: 106,
   section: { name: section.name, order: section.order },
   stateDir,
 }))
