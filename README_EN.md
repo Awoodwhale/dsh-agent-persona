@@ -63,6 +63,8 @@ Hit **新建人设** → pick workspaces or sessions under 「用在哪些地方
   projections (the same text the sidebar shows); a session that has no title yet is labelled with its first
   prompt (or its latest one) — all three values come out of a **single** file read, never a session log.
 - For prefix / regex / substring matching, choose **自己输入…** and the row becomes a text input.
+- A collapsed card lists its scope on a **second line**, workspaces and sessions apart, using workspace and
+  session names (hover for the raw path / rule); a persona with no rows reads 「默认：…」.
 - **Order is priority.** Reordering lives in the card's `⋯` menu (move up / move down); the first match from the top wins.
 - **A persona with no rows is the default persona**: it takes every session the personas above did not claim.
   Keep it at the bottom.
@@ -81,11 +83,18 @@ compared statically, so for those the first match in list order still wins.)
 
 The picker also shows occupancy: workspaces and sessions already claimed are labelled 「已被「X」使用」.
 
-Once a session is picked, the button next to the picker opens that session's conversation: one window (a few
-hundred events) is read and shown with an "已显示 N 条" count, and 继续加载 (load more) reads the next window only
-if you ask — the whole log is never read up front. Each message is capped at 4000 characters (marked 已截断 when
-clipped), and every row in the picker shows a short session id plus its age on the right, so two sessions with
-the same title stay tellable apart.
+Once a session is picked, the button next to the picker opens that session's conversation as chat bubbles —
+your input on the right, the agent's replies on the left. One window (a few hundred events) is read and shown with
+an "已显示 N 条" count, and 继续加载 (load more) reads the next window only if you ask; the whole log is never read
+up front.
+
+**Only what you actually typed is shown.** Everything else that arrives on the user side is injected by plugins —
+workspace instructions (`AGENTS.md`), runtime-context snapshots, the skill catalog, goal rounds — and one
+`AGENTS.md` injection measured 13k characters. Those are hidden, and the dialog header just says 「已隐藏 N 条插件
+注入内容」 instead of filling the view with text you never wrote.
+
+Each message is capped at 4000 characters (marked 已截断 when clipped), and every row in the picker shows a short
+session id plus its age on the right, so two sessions with the same title stay tellable apart.
 
 ## Injection mode: append or replace
 

@@ -166,6 +166,19 @@ const page3 = await collectSessionHistory(pagedCtx, 's2', { offset: page2.nextOf
 assert.equal(page3.done, true, 'a short window ends the conversation')
 assert.deepEqual(reads, ['0+2', '2+2', '4+2'], 'each page asks the backend for exactly one window')
 
+// injected user-side traffic is hidden and counted, typed input is kept
+const injected = [
+  msg('user/message', '我真实的输入'),
+  { type: 'plugin', data: { content: [{ text: 'runtime snapshot' }] } },
+]
+injected[1] = { type: 'user/message', data: { source: { kind: 'skill-catalog' }, content: [{ text: '<available_skills>…' }] } }
+injected.push({ type: 'user/message', data: { source: { kind: 'agent-instructions' }, content: [{ text: 'The following workspace instructions…' }] } })
+injected.push({ type: 'user/message', data: { content: [{ text: '没有 source 的输入视为用户输入' }] } })
+const mixedCtx = { get: (name) => (name === 'sessionPersistence' ? { open: async () => ({ header: {}, events: injected }) } : undefined) }
+const mixed = await collectSessionHistory(mixedCtx, 's5', {})
+assert.deepEqual(mixed.messages.map((m) => m.text), ['我真实的输入', '没有 source 的输入视为用户输入'], 'injected user-side events are hidden')
+assert.equal(mixed.skipped, 2, 'and counted, so the page can say so')
+
 // one huge message cannot blow up the payload
 const longCtx = { get: (name) => (name === 'sessionPersistence' ? { open: async () => ({ header: {}, events: [msg('user/message', 'x'.repeat(900))] }) } : undefined) }
 const clipped = await collectSessionHistory(longCtx, 's3', { maxChars: 200 })
