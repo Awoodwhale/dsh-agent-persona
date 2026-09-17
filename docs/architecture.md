@@ -33,11 +33,11 @@
 ```jsonc
 // $DSH_HOME/dsh-workspace-persona/personas.json
 {
-  "version": 2,
+  "version": 1,
   "personas": [
     {
       "id": "psn_ab12cd34",          // 稳定 id，客户端与远程调用都用它
-      "name": "如流助手",
+      "name": "前端项目助手",
       "enabled": true,
       "text": "…Markdown 人设正文…",
       "targets": [
@@ -104,7 +104,7 @@ Gateway 的 **source-mode 发现**会直接把这些方法挂上 `/api/workspace
 | `deletePersona` | `{ id }` | 视图 |
 | `movePersona` | `{ id, delta: -1 \| 1 }` | 视图 |
 | `duplicatePersona` | `{ id }` | 视图（副本**默认停用**） |
-| `previewMatch` | `{ cwd?, sessionId? }` | `{ subject, personaId, name, reason, silenced, chars, matchedBy[], skipped[] }` |
+| `listTargets` | — | `{ workspaces: [{ path, title, sessionCount }], sessions: [{ id, title?, cwd, createdAt }] }`（设置页的下拉框数据，按时间倒序，最多 200 条） |
 | `tunePersona` | `{ mode, instruction, text, provider?, model? }` | `{ text, mode, provider, model, source }` |
 | `listModels` | — | `{ models[], hostDefault, configured }` |
 
@@ -118,18 +118,20 @@ Gateway 的 **source-mode 发现**会直接把这些方法挂上 `/api/workspace
 
 ## 5. 模型解析（AI 调优）
 
-调优不写死任何厂商，按顺序取：
+默认就用 **DSH 自己设置的模型**，不写死任何厂商。按顺序取：
 
-1. 客户端传来的 `provider`/`model`（UI 下拉，来自 `listModels`）；
-2. 本行配置 `config.tuneProvider` / `config.tuneModel`（部署方 pin 死）；
-3. 宿主服务 `agentDefaultModel.currentSelection()`（DSH 给新 Agent 的默认选择）；
-4. 都没有 → 抛明确错误，UI 提示"没有可用模型"。
+1. 客户端传来的 `provider`/`model`（界面下拉，来自 `listModels`，默认预选下面第 3 条）；
+2. 本行配置 `config.tuneProvider` / `config.tuneModel`（部署方 pin 死自己的 LLM）；
+3. 宿主服务 `agentDefaultModel.currentSelection()` —— 就是 DSH 当前给新 Agent 用的模型；
+4. 都没有 → 抛明确错误，页面提示没有可用模型。
 
 ## 6. 存储与并发
 
 - 写入是**原子替换**：写 `<file>.tmp-<pid>` 再 `rename`，权限 `600`。
 - 读取按 `mtimeNs:size` 戳缓存：戳不变就用内存副本，戳变了重读。因此"另一台进程改了文件"也能被发现，
   且运行中的插件实例在文件被替换后**下一个请求**就生效。
-- 迁移：读到 `version !== 2` 的文档时按 v1 语义转换（每个"有内容/启用/有前缀"的工作区条目 → 一个人设；
-  v1 的 `default` → 一个无范围的兜底人设），"停用且正文为空"的条目被丢弃并在告警里点名。
-  模块导出了 `migrateStore` 供单测直接覆盖。
+- 读取是**宽容**的：只要求文档里有 `personas` 数组，每个条目都过一遍 `normalizePersona`（丢弃不认识的
+  字段、补全缺失的字段）；不是人设文档就退回空存储并告警，不抛错。
+- `collectTargets(ctx, warn)` 负责收集设置页下拉框的候选：工作区走 `workspaceRegistry.list()`（取
+  `path` / `title` / `sessionIds`），会话走 `sessionPersistence.list()`（按 `createdAt` 倒序，取标题经
+  `sessionTitle.get(session)`）。任何一个服务缺席都只是告警 + 空列表，页面会退回"自己输入…"。
