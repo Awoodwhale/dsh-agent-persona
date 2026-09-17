@@ -8,7 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2026-09-17
 
+### Fixed
+
+- **Sessions could not be read at all**: `sessionPersistence.open(id, access)` takes the access mode as a
+  second, required argument; the reader called `open(id)` and every candidate failed, so the conversation
+  dialog always reported "no reader". It now opens with `'read'` (never taking write ownership) and retries
+  id-only signatures for version tolerance.
+
 ### Changed
+
+- The session picker shows how often each session was talked to (`sessionStats.turns` from the same
+  projection read as the title), beside the short id and age; picker menus are widened to fit that row.
 
 - The settings section paints its title and description (and a skeleton card list) before any host call
   resolves, instead of showing a bare 「加载中…」; a mount race with the remote namespace retries briefly rather

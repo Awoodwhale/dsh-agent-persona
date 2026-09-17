@@ -107,10 +107,12 @@ assert.equal((await collectTargets(fileCtx, {})).sessions[0].title, '文件标�
 
 // a session with no title falls back to a prompt — from the SAME projection read, never the log
 writeFileSync(join(home, 'storages', 'session_projcache', 'sessions', 'p2.json'), JSON.stringify({
-  record: { rows: { titleInput: { val: { first: { text: '帮我看看这个奇怪的构建报错' } } } } },
+  record: { rows: { titleInput: { val: { first: { text: '帮我看看这个奇怪的构建报错' }, count: 4 } }, sessionStats: { val: { turns: 9 } } } },
 }))
 const promptCtx = { get: (name) => (name === 'sessionPersistence' ? { list: () => [{ header: { id: 'p2', cwd: WS, createdAt: 12 } }] } : undefined) }
-assert.equal((await collectTargets(promptCtx, {})).sessions[0].title, '帮我看看这个奇怪的构建报错', 'the first prompt labels a session that has no title yet')
+const promptTarget = (await collectTargets(promptCtx, {})).sessions[0]
+assert.equal(promptTarget.title, '帮我看看这个奇怪的构建报错', 'the first prompt labels a session that has no title yet')
+assert.equal(promptTarget.turns, 9, 'the session reports how often it was talked to')
 
 writeFileSync(join(home, 'storages', 'session_projcache', 'sessions', 'p3.json'), JSON.stringify({
   record: { rows: { turnOutline: { val: { turns: [{ prompt: '开始' }, { prompt: '最后我问的是这个很长的问题，长到需要被截断处理掉多余的部分才行，否则下拉框里会撑爆显示不下，所以这里必须做截断处理才行' }] } } } },
@@ -128,9 +130,16 @@ assert.ok(bareWarnings.every((message) => /must be typed/.test(message)))
 
 // ── session history: one window per call, with nextOffset for "load more"
 const msg = (type, text) => ({ type, data: { content: [{ text }] } })
+const openArgs = []
 const liveCtx = {
   get: (name) => (name === 'sessionPersistence'
-    ? { open: async () => ({ header: { cwd: WS, createdAt: 5 }, events: [msg('user/message', '第一条'), msg('tool/call', 'x'), msg('assistant/message', '回你')] }) }
+    ? {
+      open: async (...args) => {
+        openArgs.push(args)
+        if (args[1] !== 'read') throw new Error('access mode required')
+        return { header: { cwd: WS, createdAt: 5 }, events: [msg('user/message', '第一条'), msg('tool/call', 'x'), msg('assistant/message', '回你')] }
+      },
+    }
     : undefined),
 }
 const live = await collectSessionHistory(liveCtx, 's1', {})
@@ -138,6 +147,7 @@ assert.equal(live.available, true)
 assert.equal(live.cwd, WS)
 assert.deepEqual(live.messages, [{ role: 'user', text: '第一条' }, { role: 'assistant', text: '回你' }], 'tool events are skipped')
 assert.equal(live.done, true, 'an in-memory event list is one complete window')
+assert.deepEqual(openArgs[0], ['s1', 'read'], 'the persistence handle is opened for read access')
 
 // a read() based backend: the window slides and the page reports what is left
 const many = Array.from({ length: 5 }, (_, i) => msg('user/message', `m${i}`))
@@ -299,7 +309,7 @@ assert.ok(warnings.some((message) => /not a persona store/.test(message)))
 
 console.log(JSON.stringify({
   ok: true,
-  checks: 98,
+  checks: 100,
   section: { name: section.name, order: section.order },
   stateDir,
 }))
