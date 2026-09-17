@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2026-09-17
 
+### Added
+
+- **展开全文 per bubble.** Every message now carries  (its event index in the log), so a message that was
+  clipped at 1000 characters offers 展开全文: one 
+  read replaces that single bubble with the full text (and 收起全文 puts the short text back without re-reading).
+  Nothing else in the dialog is re-fetched.
 ### Changed
 
 - The per-message text cap is 1000 characters (clipping stays markdown-safe), and 跳到最新 no longer appends the

@@ -201,7 +201,7 @@ const liveCtx = {
 const live = await collectSessionHistory(liveCtx, 's1', {})
 assert.equal(live.available, true)
 assert.equal(live.cwd, WS)
-assert.deepEqual(live.messages, [{ role: 'user', text: '第一条' }, { role: 'assistant', text: '回你' }], 'tool events are skipped')
+assert.deepEqual(live.messages.map((m) => [m.role, m.text]), [['user', '第一条'], ['assistant', '回你']], 'tool events are skipped')
 assert.equal(live.done, true, 'an in-memory event list is one complete window')
 assert.deepEqual(openArgs[0], ['s1', 'read'], 'the persistence handle is opened for read access')
 
@@ -244,6 +244,12 @@ const mixedCtx = { get: (name) => (name === 'sessionPersistence' ? { open: async
 const mixed = await collectSessionHistory(mixedCtx, 's5', {})
 assert.deepEqual(mixed.messages.map((m) => m.text), ['我真实的输入', '没有 source 的输入视为用户输入'], 'injected user-side events are hidden')
 assert.equal(mixed.skipped, 2, 'and counted, so the page can say so')
+
+// every message says where it lives, and that pointer re-reads it in full
+const ptr = await collectSessionHistory(pagedCtx, 's2', { offset: 2, events: 2 })
+assert.deepEqual(ptr.messages.map((m) => m.at), [2, 3], 'messages carry their absolute event index')
+const full = await collectSessionHistory(pagedCtx, 's2', { offset: ptr.messages[0].at, events: 1, maxChars: 100000 })
+assert.deepEqual(full.messages.map((m) => m.text), ['m2'], 'one event at that pointer is that one message')
 
 // tail mode walks to the end and hands back only the last exchange
 const tailCtx = {
@@ -395,7 +401,7 @@ assert.ok(warnings.some((message) => /not a persona store/.test(message)))
 
 console.log(JSON.stringify({
   ok: true,
-  checks: 129,
+  checks: 131,
   section: { name: section.name, order: section.order },
   stateDir,
 }))
