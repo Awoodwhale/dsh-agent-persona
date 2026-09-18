@@ -126,4 +126,11 @@ assert.ok(source.includes('this.scheduleAutosave()'), 'a draft edit arms the aut
 assert.ok(source.includes("if (this.state.prefs?.autosave !== true) return"), 'which stays idle unless the preference is on')
 assert.ok(source.includes('clearTimeout(this.autosaveTimer)'), 'and its timer is cleared on unmount')
 
+
+// ── the sidebar switch belongs to the sidebar plugin being installed
+assert.ok(source.includes('let sidebarAvailable = false'), 'availability starts false')
+assert.ok(source.includes('sidebarAvailable = true'), 'and is set where the sidebar service is injected')
+assert.ok(/sidebarAvailable[\s\n]*\?\s*h\(Switch/.test(source), 'the switch is rendered only when it is available')
+assert.ok(source.includes('未安装侧边栏插件，因此没有该开关'), 'and the row says why it is missing when it is')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
