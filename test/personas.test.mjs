@@ -492,6 +492,21 @@ assert.deepEqual(unimplemented, [], `exposed methods with no service implementat
 assert.ok(exposedNames.length >= 10, `and the audit found the exposed methods (${exposedNames.length})`)
 assert.ok(exposedNames.includes('sessionPrompt'), 'the persona view endpoint is exposed')
 
+
+// ── the default persona is the opt-in fallback: it applies when nothing claimed a position, only one
+// can hold the flag, and without one the harness prompt stands
+const fallbackPersona = P({ id: 'fb', name: 'fb', text: 'FALLBACK', targets: [] })
+fallbackPersona.fallback = true
+assert.equal(resolvePersona([fallbackPersona], { cwd: WS, sessionId: 's1' }).persona.id, 'fb', 'it takes a session nothing claimed')
+assert.equal(resolvePersona([fallbackPersona], { cwd: WS }).reason, 'fallback', 'and says why')
+assert.equal(resolvePersona([fallbackPersona], {}).persona.id, 'fb', 'including an agent-less assembly')
+const scopedPersona = P({ id: 'scoped', targets: [T('workspace', 'exact', WS)] })
+assert.equal(resolvePersona([scopedPersona, fallbackPersona], { cwd: WS }).persona.id, 'scoped', 'a claimed position still wins')
+assert.equal(resolvePersona([P({ id: 'plain', targets: [] })], { cwd: WS }).persona, undefined, 'a plain target-less persona does not')
+fallbackPersona.enabled = false
+assert.equal(resolvePersona([fallbackPersona], { cwd: WS }).persona, undefined, 'a disabled default is skipped')
+fallbackPersona.enabled = true
+
 console.log(JSON.stringify({
   ok: true,
   checks: 134,
