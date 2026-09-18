@@ -151,4 +151,13 @@ assert.ok(source.includes('...(openDraft === undefined ? {} : { draft: openDraft
 assert.ok(source.includes('f: value.fallback === true'), 'the draft fingerprint compares the flag')
 assert.ok((source.match(/fallback: draft\.fallback === true/g) ?? []).length >= 2, 'and both editors send it')
 
+
+// ── the persona list the cards read must carry the default flag: the switch showed off after saving
+// because the field had landed on the workspace/session rows instead
+const hostSrc = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+const viewAt = hostSrc.indexOf('const view = () =>')
+const viewBody = hostSrc.slice(viewAt, hostSrc.indexOf('\n  }', viewAt))
+assert.ok(viewBody.includes('fallback: persona.fallback === true'), 'the view payload carries the flag')
+assert.equal(viewBody.includes('noTargets: persona.targets.length === 0'), true, 'beside the other derived fields')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
