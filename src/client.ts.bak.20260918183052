@@ -2274,7 +2274,7 @@ const since = (timestamp) => {
 
     // ── plugin ──────────────────────────────────────────────────────────────
 
-    const inject = ['slots', 'remote', 'connection']
+    const inject = ['slots', 'remote']
 
     function apply(ctx) {
       const style = injectStyles()

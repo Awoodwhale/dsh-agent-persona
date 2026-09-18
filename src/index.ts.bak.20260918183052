@@ -65,7 +65,7 @@ export const Config = Schema.object({
   storePath: Schema.string().default(''),
 })
 
-export const inject = ['systemPrompt', 'connection', 'webServer']
+export const inject = ['systemPrompt']
 
 const DSH_HOME = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 /** Everything this plugin writes lives under one directory of its own. */

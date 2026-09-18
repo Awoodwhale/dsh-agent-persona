@@ -167,4 +167,19 @@ const chipRegion = source.slice(viewClassAt, source.indexOf('class ', viewClassA
 assert.ok(chipRegion.includes("'默认人设'"), 'the persona tab shows the default tag')
 assert.ok(chipRegion.includes('persona.fallback === true'), 'only for the persona that holds the flag')
 
+
+// ── the generated artifacts must keep the shapes their consumers expect. Getting this wrong is what
+// broke the boot: the generator emitted an invented { package, descriptors } object, the typert loader
+// found no manifest and refused the plugin tree ("no TYPERT manifest object"). The contract now has a
+// test, so a future generator edit cannot quietly return to a made-up shape.
+const manifest = readFileSync(new URL('../src/typert.ts', import.meta.url), 'utf8')
+assert.ok(manifest.includes('face: "host"'), 'the manifest declares the face the loader reads')
+assert.ok(manifest.includes('model:'), 'and a model block')
+assert.ok(manifest.includes('invocations:'), 'holding one invocation per endpoint')
+assert.ok(manifest.includes('from "zod"') || manifest.includes("from 'zod'"), 'with zod codecs')
+assert.ok(manifest.includes('name: "listPersonas"'), 'and a member entry per endpoint')
+const remote = readFileSync(new URL('../src/remote.ts', import.meta.url), 'utf8')
+assert.ok(remote.includes('export const RPC_REMOTE'), 'the remote artifact exports the object the client mounts')
+assert.ok(source.includes("from './remote.js'"), 'and the client mounts that artifact rather than a hand-written copy')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))

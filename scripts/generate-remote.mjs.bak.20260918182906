@@ -54,67 +54,13 @@ ${endpoints.map(descriptor).join('\n')}
 }
 `
 
-const noInput = new Set(['listPersonas', 'listTargets', 'listModels'])
-const signature = (name) => noInput.has(name) ? '(): Promise<unknown>' : '(input: unknown): Promise<unknown>'
-const parameters = (name) => noInput.has(name) ? '[]' : `[
-        {
-          name: "input",
-          wire: "input",
-          source: "json",
-          codec: jsonCodec("Json"),
-        },
-      ]`
-const member = (name) => `          { name: ${JSON.stringify(name)}, kind: "method", signature: ${JSON.stringify(signature(name))} },`
-const invocation = (name) => `        {
-          id: \`${pkg}#agentPersona/${name}\`,
-          service: "agentPersona",
-          namespace: "agentPersona",
-          method: ${JSON.stringify(name)},
-          invocation: direct,
-          parameters: ${parameters(name)},
-          result: result("Json"),
-        },`
+const typert = `${header}export const RPC_CHANNEL = ${JSON.stringify(channel)}
 
-/**
- * The current Typert loader consumes a full host manifest from ./typert.
- * Keep this artifact generated from the same endpoint list as the browser RPC
- * descriptors so a stale simplified TYPERT_REMOTE object cannot break startup.
- */
-const typert = `${header}import { z } from "zod"
-
-const PKG = ${JSON.stringify(pkg)}
-const direct = { kind: "direct" }
-const jsonCodec = (typeSymbol) => ({
-  mode: "strict",
-  typeSymbol: \`${'${PKG}'}#\${typeSymbol}\`,
-  schema: z.unknown(),
-})
-const result = (typeSymbol) => jsonCodec(typeSymbol)
-
-export const TYPERT = {
-  package: PKG,
-  face: "host",
-  schemas: [],
-  model: {
-    services: [
-      {
-        tags: [],
-        key: "agentPersona",
-        exportName: "agentPersona",
-        description: "Workspace-scoped agent personas exposed through the host RPC service.",
-        summary: "Agent persona management service",
-        jsDoc: "The host service for listing, editing, matching, and tuning agent personas.",
-        members: [
-${endpoints.map(member).join('\n')}
-        ],
-        types: [],
-      },
-    ],
-    events: [],
-    objects: [],
-  },
-  invocations: [
-${endpoints.map(invocation).join('\n')}
+/** The host-side description of the same surface, for tooling and documentation. */
+export const TYPERT_REMOTE = {
+  package: ${JSON.stringify(pkg)},
+  methods: [
+${endpoints.map((name) => `    ${JSON.stringify(name)},`).join('\n')}
   ],
 }
 `
