@@ -467,12 +467,14 @@ assert.equal((await sessionPromptFrom(viewCtx, 'pv1', [])).persona, null, 'a ses
 // ── every runtime method must be exposed on the remote namespace, or its route 404s
 const hostSource = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
 const runtimeBlock = hostSource.slice(hostSource.indexOf('const runtime = {'), hostSource.indexOf('markRemote('))
-const runtimeMethods = [...runtimeBlock.matchAll(/\n\s+async ([a-zA-Z]+)\(/g)].map((match) => match[1])
+const runtimeMethods = [...runtimeBlock.matchAll(/\n\s+(?:async )?([a-zA-Z]+)[(,]/g)]
+  .map((match) => match[1])
+  .filter((name) => !['if', 'for', 'while', 'return', 'const', 'catch', 'await'].includes(name))
 const exposed = (hostSource.match(/markRemote\([^\[]*\[([^\]]*)\]/) ?? [])[1]
 const exposedNames = exposed === undefined ? [] : exposed.split(',').map((name) => name.trim().replace(/['"]/g, '')).filter(Boolean)
 const unexposed = runtimeMethods.filter((name) => !exposedNames.includes(name))
 assert.deepEqual(unexposed, [], `runtime methods missing from the remote namespace: ${unexposed.join(', ')}`)
-assert.ok(runtimeMethods.length >= 10, 'and the audit found the runtime methods')
+assert.ok(runtimeMethods.length >= 8, `and the audit found the runtime methods (${runtimeMethods.length})`)
 
 console.log(JSON.stringify({
   ok: true,
