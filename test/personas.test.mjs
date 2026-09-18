@@ -328,12 +328,13 @@ assert.equal((await collectSessionHistory({ get: () => undefined }, '', {})).una
 
 // ── injection modes: append leaves the prompt alone, replace drops the deployment persona
 const prefixSection = (text) => ({ name: 'deployment:persona-prefix', text })
-const assembly = { sections: [prefixSection('BASE'), { name: 'harness:identity', text: 'ID' }], contexts: [], tools: [], variables: {} }
+const assembly = { sections: [prefixSection('BASE'), { name: 'tools:guidance', text: 'ID' }], contexts: [], tools: [], variables: {} }
 assert.deepEqual(PERSONA_MODES, ['append', 'replace'])
 assert.equal(applyPersonaMode(assembly, { mode: 'append', deploymentPrefix: 'BASE' }), assembly, 'append hands the assembly on untouched')
 const replaced = applyPersonaMode(assembly, { mode: 'replace', deploymentPrefix: 'BASE' })
 assert.equal(replaced.sections[0].text, '', 'replace drops the deployment persona line')
 assert.equal(replaced.sections[1].text, 'ID', 'and leaves every other section alone')
+assert.equal(applyPersonaMode({ sections: [{ name: 'harness:identity', text: 'ID' }] }, { mode: 'replace', deploymentPrefix: 'BASE' }).sections[0].text, '', 'while the harness identity line is taken over as well')
 assert.equal(assembly.sections[0].text, 'BASE', 'the input assembly is not mutated')
 assert.equal(applyPersonaMode(assembly, { mode: 'replace', deploymentPrefix: 'A PRESET PERSONA' }), assembly, 'a persona someone else wrote is never overwritten')
 assert.equal(applyPersonaMode(assembly, { mode: 'replace', deploymentPrefix: undefined }).sections[0].text, '', 'an unreadable deployment persona still honours the request')
