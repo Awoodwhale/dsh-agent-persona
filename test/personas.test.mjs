@@ -522,6 +522,16 @@ assert.equal(
   'a fallback persona read back from disk still applies where nothing claimed the session',
 )
 
+
+// ── configuration is a Schemastery schema: defaults in the schema, and the row's value is validated
+// when it loads (a wrong type fails loudly instead of being ignored)
+assert.equal(typeof mod.Config, 'function', 'the plugin exports a Config schema')
+const parsedDefault = mod.Config({})
+assert.equal(parsedDefault.storePath, '', 'with the store path defaulting to empty (the standard location)')
+const parsedPath = mod.Config({ storePath: '/tmp/custom-personas.json' })
+assert.equal(parsedPath.storePath, '/tmp/custom-personas.json', 'and accepting a configured path')
+assert.throws(() => mod.Config({ storePath: 42 }), 'while a wrong type is rejected')
+
 console.log(JSON.stringify({
   ok: true,
   checks: 134,
