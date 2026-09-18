@@ -16,6 +16,7 @@ const storePath = join(stateDir, 'personas.json')
 const heartbeatPath = join(stateDir, 'state.json')
 
 const mod = await import(new URL('../lib/index.js', import.meta.url).href)
+const { collectLastSystemPrompt, sessionPromptFrom } = mod
 const { applyPersonaMode, clipMarkdown, collectSessionHistory, historyOptions, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
 
 const WS = '/tmp/ws/web-app'
@@ -65,11 +66,11 @@ const identityAssembly = () => ({
     { name: 'tools:guidance', text: 'Use the read tool.' },
   ],
 })
-const replaced = applyPersonaMode(identityAssembly(), { mode: 'replace', deploymentPrefix: 'You are a coding agent powered by the DeepSeek model.' })
-assert.equal(replaced.sections[0].text, '', 'replace clears the harness identity line')
-assert.equal(replaced.sections[1].text, '', 'and the deployment persona prefix')
-assert.equal(replaced.sections[2].text, 'MY PERSONA', 'leaving the persona itself alone')
-assert.equal(replaced.sections[3].text, 'Use the read tool.', 'and the tool guidance untouched')
+const identityReplaced = applyPersonaMode(identityAssembly(), { mode: 'replace', deploymentPrefix: 'You are a coding agent powered by the DeepSeek model.' })
+assert.equal(identityReplaced.sections[0].text, '', 'replace clears the harness identity line')
+assert.equal(identityReplaced.sections[1].text, '', 'and the deployment persona prefix')
+assert.equal(identityReplaced.sections[2].text, 'MY PERSONA', 'leaving the persona itself alone')
+assert.equal(identityReplaced.sections[3].text, 'Use the read tool.', 'and the tool guidance untouched')
 const appended = applyPersonaMode(identityAssembly(), { mode: 'append', deploymentPrefix: 'x' })
 assert.equal(appended.sections[0].text.startsWith('You are an AI agent'), true, 'append keeps the harness identity')
 assert.equal(appended.sections[1].text.startsWith('You are a coding agent'), true, 'and the deployment persona')
@@ -432,6 +433,33 @@ const broken = new Date(Date.now() + 4000)
 utimesSync(storePath, broken, broken)
 assert.equal(section.text({ agent: { session: { header: { id: 'x', cwd: '/tmp/x' } } } }), '')
 assert.ok(warnings.some((message) => /not a persona store/.test(message)))
+
+// ── the persona view reads the session's own log and the persona in force
+const promptEvents = [
+  { type: 'session/header', data: { id: 'pv1', cwd: WS } },
+  { type: 'system/message', data: { message: { role: 'system', content: [{ type: 'text', text: 'FIRST PROMPT' }] } } },
+  { type: 'user/message', data: { type: 'user/message', message: { content: [{ type: 'text', text: 'hello' }] } } },
+  { type: 'system/message', data: { message: { role: 'system', content: [{ type: 'text', text: 'LAST PROMPT' }] } } },
+]
+const viewCtx = {
+  get: (name) => (name === 'sessionPersistence'
+    ? {
+      list: async () => [{ header: { id: 'pv1', cwd: WS } }],
+      open: async () => ({
+        header: { cwd: WS },
+        read: async (offset, length) => ({ events: promptEvents.slice(offset, offset + length), eventCount: promptEvents.length }),
+      }),
+    }
+    : undefined),
+}
+assert.equal(await collectLastSystemPrompt(viewCtx, 'pv1'), 'LAST PROMPT', 'the last system prompt in the log wins')
+assert.equal(await collectLastSystemPrompt({ get: () => undefined }, 'pv1'), null, 'and an unreadable log yields nothing')
+const viewPayload = await sessionPromptFrom(viewCtx, 'pv1', [P({ id: 'pv', name: '人设甲', mode: 'replace', text: 'TEXT', targets: [T('workspace', 'exact', WS)] })])
+assert.equal(viewPayload.persona.name, '人设甲', 'the view names the persona in force')
+assert.equal(viewPayload.persona.mode, 'replace', 'with its mode')
+assert.equal(viewPayload.persona.targets.length, 1, 'and its scope rules, so saving from the tab cannot drop them')
+assert.equal(viewPayload.prompt, 'LAST PROMPT', 'plus the prompt the session actually sent')
+assert.equal((await sessionPromptFrom(viewCtx, 'pv1', [])).persona, null, 'a session nothing matches reports no persona')
 
 console.log(JSON.stringify({
   ok: true,
