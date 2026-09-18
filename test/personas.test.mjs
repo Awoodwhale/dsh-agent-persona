@@ -455,7 +455,9 @@ const viewCtx = {
 }
 assert.equal(await collectLastSystemPrompt(viewCtx, 'pv1'), 'LAST PROMPT', 'the last system prompt in the log wins')
 assert.equal(await collectLastSystemPrompt({ get: () => undefined }, 'pv1'), null, 'and an unreadable log yields nothing')
-const viewPayload = await sessionPromptFrom(viewCtx, 'pv1', [P({ id: 'pv', name: '人设甲', mode: 'replace', text: 'TEXT', targets: [T('workspace', 'exact', WS)] })])
+const viewPersona = P({ id: 'pv', name: '人设甲', text: 'TEXT', targets: [T('workspace', 'exact', WS)] })
+viewPersona.mode = 'replace'
+const viewPayload = await sessionPromptFrom(viewCtx, 'pv1', [viewPersona])
 assert.equal(viewPayload.persona.name, '人设甲', 'the view names the persona in force')
 assert.equal(viewPayload.persona.mode, 'replace', 'with its mode')
 assert.equal(viewPayload.persona.targets.length, 1, 'and its scope rules, so saving from the tab cannot drop them')
