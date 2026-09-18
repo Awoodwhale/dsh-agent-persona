@@ -507,6 +507,21 @@ fallbackPersona.enabled = false
 assert.equal(resolvePersona([fallbackPersona], { cwd: WS }).persona, undefined, 'a disabled default is skipped')
 fallbackPersona.enabled = true
 
+
+// ── the default flag must survive the round trip through the store file: the reader used to strip it,
+// so saving looked successful and the next read showed the switch off again
+writeFileSync(storePath, JSON.stringify({
+  version: 1,
+  personas: [{ id: 'fb1', name: '保底', enabled: true, fallback: true, text: 'FALLBACK-ROUNDTRIP', targets: [] }],
+}))
+const fbStamp = new Date(Date.now() + 4000)
+utimesSync(storePath, fbStamp, fbStamp)
+assert.equal(
+  section.text({ agent: { session: { header: { id: 'nowhere', cwd: '/tmp/nowhere' } } } }),
+  'FALLBACK-ROUNDTRIP',
+  'a fallback persona read back from disk still applies where nothing claimed the session',
+)
+
 console.log(JSON.stringify({
   ok: true,
   checks: 134,

@@ -160,4 +160,11 @@ const viewBody = hostSrc.slice(viewAt, hostSrc.indexOf('\n  }', viewAt))
 assert.ok(viewBody.includes('fallback: persona.fallback === true'), 'the view payload carries the flag')
 assert.equal(viewBody.includes('noTargets: persona.targets.length === 0'), true, 'beside the other derived fields')
 
+
+// ── the 人设 tab marks the default persona, and only when it is one
+const viewClassAt = source.indexOf('class PersonaView')
+const chipRegion = source.slice(viewClassAt, source.indexOf('class ', viewClassAt + 10))
+assert.ok(chipRegion.includes("'默认人设'"), 'the persona tab shows the default tag')
+assert.ok(chipRegion.includes('persona.fallback === true'), 'only for the persona that holds the flag')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
