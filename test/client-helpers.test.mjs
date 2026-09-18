@@ -1,34 +1,34 @@
 /**
- * Guards the client's rendering choices by reading its source (the bundle registers
- * itself with the browser's module loader, so it cannot be imported into Node), and
- * exercises the pure helpers it relies on. Two rules are pinned here: the markdown
- * handed to the kit's renderer must be transcript-safe, and fenced code must arrive as
- * HTML, so the syntax highlighter behind the kit's code-block component — which throws
- * on this content — never sees a fence.
+ * Guards the client's rendering choices by reading its source: the bundle registers
+ * itself with the browser's module loader, so it cannot be imported into Node.
+ *
+ * The rule this file exists for: the shared `MarkdownText` reads `labels.code` for every
+ * code block, so a caller that passes only `text` throws on the messages that contain a
+ * fence ("Cannot read properties of undefined (reading code)"). The dialog passes the
+ * labels, and none of the workarounds that were tried before that diagnosis may return.
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
 
-/** Slice a top-level block by its start marker and the next section marker. */
-const sliceBlock = (startMarker, endMarker) => {
-  const from = source.indexOf(startMarker)
-  const to = source.indexOf(endMarker)
-  assert.ok(from !== -1 && to > from, `${startMarker} must be extractable from the client source`)
-  return source.slice(from, to)
-}
-
-const escapeUnknownTags = new Function(`${sliceBlock('const KNOWN_HTML_TAGS', '    const escapeHtmlText')}\nreturn escapeUnknownTags`)()
-const fencesToHtml = new Function(`${sliceBlock('    const escapeHtmlText', '    /**\n     * Renders one message with the conversation')}\nreturn fencesToHtml`)()
-
-// ── the renderer, and what it is fed
+// ── the renderer and its required props
 assert.ok(source.includes('MarkdownText,'), 'the kit renderer available to plugins is imported')
 assert.ok(
-  source.includes('h(MarkdownText, { text: fencesToHtml(escapeUnknownTags(text)) })'),
-  'and used on text whose fences are already HTML',
+  source.includes("labels: { code: { copyLabel: '复制', copiedLabel: '已复制' }, footnotes: '' }"),
+  'and is called with the chrome labels it reads for each code block',
 )
-for (const gone of ['MessageText,', 'splitMarkdown', 'SafeChunk', 'onDegrade', 'wsp-warmup']) {
+for (const gone of [
+  'MessageText,',
+  'splitMarkdown',
+  'SafeChunk',
+  'escapeUnknownTags',
+  'fencesToHtml',
+  'KNOWN_HTML_TAGS',
+  'onDegrade',
+  'wsp-warmup',
+  'this.retry',
+]) {
   assert.equal(source.includes(gone), false, `${gone} must not come back`)
 }
 
@@ -37,10 +37,9 @@ const head = source.slice(source.indexOf('async readHeadHistory()'), source.inde
 assert.equal(head.includes('history: undefined'), false, 'readHeadHistory must not clear the dialog while it re-reads')
 assert.ok(head.includes("mode: 'head'"), 'and it replaces the contents in place')
 
-// ── a failed render retries, and still degrades visibly rather than killing the page
-assert.ok(source.includes('this.setState({ failed: false, attempt: this.state.attempt + 1 })'), 'a failed render is retried')
-assert.ok(source.includes('getDerivedStateFromError'), 'and a message that keeps failing shows its text')
-assert.ok(source.includes('this.state.reason'), 'with the reason on screen')
+// ── a message that cannot render shows its text and the reason, without killing the page
+assert.ok(source.includes('getDerivedStateFromError'), 'a failing message degrades instead of abdicating the slot')
+assert.ok(source.includes('this.state.reason'), 'and the note names the reason')
 
 // ── every element used must be imported or defined here: an undefined element is
 // React error #130, which is how the conflict banner once crashed the page
@@ -55,36 +54,4 @@ const unresolvedIcons = iconsUsed.filter((name) => !imported.has(name) && !defin
 assert.deepEqual(unresolvedIcons, [], `these icons are used but never imported: ${unresolvedIcons.join(', ')}`)
 assert.ok(iconsUsed.length > 8, 'and the icon audit saw the icons')
 
-// ── fences become plain HTML code blocks
-assert.equal(fencesToHtml('prose only'), 'prose only', 'text without fences is untouched')
-assert.equal(
-  fencesToHtml('```js\nconst a = 1 < 2\n```'),
-  '<pre><code>const a = 1 &lt; 2</code></pre>',
-  'a fence becomes an HTML code block, with its angle brackets escaped',
-)
-assert.equal(
-  fencesToHtml('a\n```\nx\n```\nb\n```py\ny\n```\nc'),
-  'a\n<pre><code>x</code></pre>\nb\n<pre><code>y</code></pre>\nc',
-  'every fence in a document is converted',
-)
-assert.equal(fencesToHtml('```\nunterminated'), '<pre><code>unterminated</code></pre>', 'an unterminated fence still renders as code')
-assert.equal(fencesToHtml('inline `a < b` stays'), 'inline `a < b` stays', 'inline code is untouched')
-assert.equal(fencesToHtml(''), '', 'an empty message stays empty')
-
-// ── tag-shaped prose must not reach the HTML parser; real HTML and code stay put
-assert.equal(
-  escapeUnknownTags('每块一个 <MyThing>（自己的错误边界）'),
-  '每块一个 &lt;MyThing&gt;（自己的错误边界）',
-  'an unknown tag becomes literal text',
-)
-assert.equal(
-  escapeUnknownTags('<details><summary>x</summary>y</details>'),
-  '<details><summary>x</summary>y</details>',
-  'known HTML is left for the renderer',
-)
-assert.equal(escapeUnknownTags('a < b and c > d'), 'a < b and c > d', 'a bare comparison is not a tag')
-assert.equal(escapeUnknownTags('inline `a <B> c` stays'), 'inline `a <B> c` stays', 'inline code is untouched')
-assert.equal(escapeUnknownTags('```\n<MyThing>\n```'), '```\n<MyThing>\n```', 'fenced code is untouched')
-assert.equal(escapeUnknownTags('no tags here'), 'no tags here', 'plain text passes through')
-
-console.log(JSON.stringify({ ok: true, clientChecks: 19 }))
+console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
