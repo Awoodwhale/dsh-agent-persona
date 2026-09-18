@@ -1,4 +1,3 @@
-// @ts-nocheck —— 迁移第一步：先建立构建与产物形状，类型逐步补全
 import { RPC_REMOTE } from './remote.js'
 /**
  * workspace-persona — client half (v2: many personas, each with its own scope).
@@ -28,6 +27,16 @@ import { RPC_REMOTE } from './remote.js'
  * component whose render path cannot throw, and it reads the Remote service from
  * a registration-time capture because slot `inject` props are not guaranteed.
  */
+
+declare global {
+  interface Window {
+    /** The client runtime hands every plugin this loader; see the DSH plugin standard. */
+    __ModuleLoader__: {
+      load: (entry: { id: string; factory: (require: (name: string) => any) => unknown }) => void
+    }
+  }
+}
+export {}
 
 window.__ModuleLoader__.load({
   id: 'dsh-agent-persona',
@@ -1020,7 +1029,7 @@ const since = (timestamp) => {
       }
 
       /** Refresh the list; keeps the expanded card open when it still exists. */
-      async load(keepOpen) {
+      async load(keepOpen = false) {
         const api = this.api()
         if (api === undefined) {
           // The remote namespace mounts asynchronously, so a first render can
@@ -1105,7 +1114,15 @@ const since = (timestamp) => {
             session.createdAt === null || session.createdAt === undefined ? null : ` · ${since(session.createdAt)}`,
           ]),
         ])
-        const items = [{ type: 'label', id: 'recent', text: '最近的会话' }]
+        type PickerItem = {
+          id: string
+          type?: string
+          text?: string
+          label?: unknown
+          icon?: unknown
+          submenu?: unknown[]
+        }
+        const items: PickerItem[] = [{ type: 'label', id: 'recent', text: '最近的会话' }]
         for (const session of sessions.slice(0, 10)) {
           items.push({ id: session.id, label: optionLabel(session), icon: h(IconListPenOutline16, {}) })
         }
@@ -1350,7 +1367,7 @@ const since = (timestamp) => {
        *   their own: the row would be stored half-filled, and a queued autosave from an earlier
        *   edit would land in the middle of the picking.
        */
-      patchDraft(patch, options = {}) {
+      patchDraft(patch, options: { autosave?: boolean } = {}) {
         const draft = this.state.draft
         if (draft === undefined) return
         this.onChange({ draft: Object.assign({}, draft, patch) })
@@ -2333,7 +2350,7 @@ const since = (timestamp) => {
       // Mount the Remote namespace, then expose it to the already-registered pages.
       void (async () => {
         try {
-          await ctx.remote.$mount(TYPERT_REMOTE)
+          await ctx.remote.$mount(RPC_REMOTE)
           capturedApi = ctx.get('remote.agentPersona')
         } catch (error) {
           ctx.logger?.warn?.(`[${NS}] could not mount remote namespace: ${String(error)}`)
