@@ -419,14 +419,20 @@ writeFileSync(storePath, JSON.stringify({
 const stamp2 = new Date(Date.now() + 6000)
 utimesSync(storePath, stamp2, stamp2)
 assert.equal(typeof assembleWaterfall, 'function', 'the plugin listens to system-prompt/assemble')
+let handedOn = 0
+const downstreamAssembly = () => ({
+  sections: [{ name: 'deployment:persona-prefix', text: 'BASE' }, { name: 'agent-persona', text: 'REPLACED' }],
+  contexts: [], tools: [], variables: {},
+})
 const assemble = (cwd) => assembleWaterfall(
-  { sections: [{ name: 'deployment:persona-prefix', text: 'BASE' }, { name: 'agent-persona', text: 'REPLACED' }], contexts: [], tools: [], variables: {} },
+  downstreamAssembly(),
   { agent: { session: { header: { id: 'x', cwd } } } },
-  () => 'HANDED-ON',
+  () => { handedOn += 1; return downstreamAssembly() },
 )
-assert.equal(assemble(WS).sections[0].text, '', 'a replace persona drops the deployment persona for its workspace')
-assert.equal(assemble(WS).sections[1].text, 'REPLACED')
-assert.equal(assemble('/tmp/elsewhere'), 'HANDED-ON', 'other sessions are handed on untouched')
+assert.equal((await assemble(WS)).sections[0].text, '', 'a replace persona drops the deployment persona for its workspace')
+assert.equal((await assemble(WS)).sections[1].text, 'REPLACED')
+assert.ok(handedOn >= 2, 'the waterfall calls next() instead of vetoing the chain')
+assert.equal((await assemble('/tmp/elsewhere')).sections[0].text, 'BASE', 'other sessions are handed on untouched')
 
 // a store that is not a persona store degrades to empty instead of throwing
 writeFileSync(storePath, '{"nonsense": true}')
