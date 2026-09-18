@@ -132,4 +132,11 @@ assert.ok(source.includes('let sidebarAvailable = false'), 'availability starts 
 assert.ok(source.includes('sidebarAvailable = true'), 'and is set where the sidebar service is injected')
 assert.ok(/sidebarAvailable[\s\n]*\?\s*h\(Switch/.test(source), 'the switch is rendered only when it is available')
 
+
+// ── autosave must not fire on a half-made choice: picking a workspace/session or adding a rule
+// row is several clicks, and saving mid-way stores an empty row
+assert.ok(source.includes('patchDraft(patch, options = {})'), 'the draft funnel takes an option')
+assert.equal((source.match(/\{ autosave: false \}/g) ?? []).length, 3, 'the three rule-row edits opt out')
+assert.ok(source.includes('clearTimeout(this.autosaveTimer)\n          this.autosaveTimer = undefined'), 'and a queued autosave is dropped when one of them happens')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
