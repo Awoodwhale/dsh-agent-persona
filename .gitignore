@@ -7,3 +7,5 @@ npm-debug.log*
 coverage/
 dist/
 *.tgz
+lib/
+node_modules/

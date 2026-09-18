@@ -1,9 +1,10 @@
+// @ts-nocheck —— 迁移第一步：先建立构建与产物形状，类型逐步补全
 /**
  * workspace-persona — client half (v2: many personas, each with its own scope).
  *
  * Hand-written `__ModuleLoader__` module (no build step). It mounts the
  * `agentPersona` Remote namespace and registers one `settings.section` page
- * (Settings → Agent人设).
+ * (Settings → Agent 人设).
  *
  * Layout contract (the settings dialog hands a section ~556px, so):
  *   - ONE full-width column, `max-width: 860px`; no side rail.
@@ -59,6 +60,7 @@ window.__ModuleLoader__.load({
       IconFolderOpen16,
       IconListPenOutline16,
       IconPersonalizationOutline16,
+      IconRefreshOutline16,
       IconUserOutline16,
       IconWarningOutline16,
       IconPlusOutline16,
@@ -113,34 +115,54 @@ window.__ModuleLoader__.load({
      * depend on both halves loading the same module instance and break for an npm-installed
      * plugin. The envelope is the same shape the gateway used: `{ok, value}` / `{ok, error}`.
      */
-    const makeApi = (ctx) => {
-      const connection = ctx.connection ?? ctx.get?.('connection')
-      const rpc = connection?.rpc
-      const call = (endpoint) => async (payload) => {
-        if (rpc === undefined || typeof rpc.call !== 'function') {
-          throw new Error('connection RPC 不可用（宿主没有提供 connection 服务）')
-        }
-        return rpc.call(RPC_CHANNEL, endpoint, payload ?? null)
-      }
-      return {
-        listPersonas: call('listPersonas'),
-        savePersona: call('savePersona'),
-        deletePersona: call('deletePersona'),
-        movePersona: call('movePersona'),
-        duplicatePersona: call('duplicatePersona'),
-        reorderPersona: call('reorderPersona'),
-        listTargets: call('listTargets'),
-        sessionHistory: call('sessionHistory'),
-        sessionPrompt: call('sessionPrompt'),
-        tunePersona: call('tunePersona'),
-        listModels: call('listModels'),
-      }
-    }
+    const withInput = () => [{ name: 'input', wire: 'input', source: 'json', codec: codec('Input', asInput) }]
 
+    const TYPERT_REMOTE = {
+      package: 'dsh-agent-persona',
+      descriptors: [
+        method('listPersonas', []),
+        method('savePersona', withInput()),
+        method('deletePersona', withInput()),
+        method('movePersona', withInput()),
+        method('duplicatePersona', withInput()),
+        method('reorderPersona', withInput()),
+        method('listTargets', []),
+        method('sessionHistory', withInput()),
+        method('sessionPrompt', withInput()),
+        method('tunePersona', withInput()),
+        method('listModels', []),
+      ],
+    }
     // ── styles ──────────────────────────────────────────────────────────────
 
+    /** Interface preferences: where the persona page shows up, and whether edits save themselves. */
+    const PREF_KEY = 'dsh-agent-persona.prefs'
+    const DEFAULT_PREFS = { autosave: false, showTab: true, showSidebar: true }
+    /**
+ * Whether the sidebar plugin is installed. Its `sidebarRightTabs` service is what proves it: the
+ * inject below only fires when that service exists, so the switch for it appears only then.
+ */
+let sidebarAvailable = false
+
+const readPrefs = () => {
+      try {
+        return { ...DEFAULT_PREFS, ...JSON.parse(window.localStorage?.getItem(PREF_KEY) ?? '{}') }
+      } catch {
+        return { ...DEFAULT_PREFS }
+      }
+    }
+    const writePrefs = (patch) => {
+      const next = { ...readPrefs(), ...patch }
+      try {
+        window.localStorage?.setItem(PREF_KEY, JSON.stringify(next))
+      } catch {
+        /* a browser that refuses storage keeps the default */
+      }
+      return next
+    }
+
     const CSS = `
-[data-plugin="dsh-agent-persona"] {
+.wsp-root, .wsp-view, .wsp-chat-modal, [data-plugin="dsh-agent-persona"], [data-plugin="agent-persona"] {
   --wsp-line: var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.25));
   --wsp-line-soft: rgba(128, 128, 128, 0.14);
   --wsp-line-strong: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.4));
@@ -148,6 +170,8 @@ window.__ModuleLoader__.load({
   --wsp-muted: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.85));
   --wsp-muted-2: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.62));
   --wsp-accent: var(--dsw-alias-brand-primary, #58a6ff);
+  --wsp-mode: #7c5cff;
+  --wsp-mode-soft: #a78bfa;
   --wsp-success: var(--dsw-alias-state-success-primary, #3fb950);
   --wsp-danger: var(--dsw-alias-state-error-primary, #f85149);
   --wsp-warn: var(--dsw-alias-state-warn-primary, #d29922);
@@ -195,7 +219,16 @@ window.__ModuleLoader__.load({
    card's own 12px corners, instead of a second rounded box drawn inside it. */
 .wsp-card:not(.wsp-card-open):hover { border-color: var(--wsp-line-strong); background: var(--wsp-surface-2); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
 .wsp-card-open { border-color: var(--wsp-line-strong); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.04); }
+.wsp-prefs { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 10px; }
+.wsp-prefs .wsp-switch-text { font-size: 12.5px; }
 .wsp-row-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px 3px; min-height: 44px; box-sizing: border-box; flex-wrap: wrap; border-radius: 12px 12px 0 0; }
+/* 展开后的卡片：头部吸顶，保存按钮就在手边 */
+.wsp-row-open { position: sticky; top: 0; z-index: 3; background: var(--wsp-surface); }
+.wsp-row-switch { display: inline-flex; align-items: center; }
+.wsp-row-switch .wsp-switch-text { display: none; }
+.wsp-save-chip { height: 20px; padding: 0 9px; border: 1px solid color-mix(in srgb, var(--wsp-warn, #d29922) 45%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--wsp-warn, #d29922) 14%, transparent); font: inherit; font-size: 11px; line-height: 1; color: var(--wsp-warn, #d29922); cursor: pointer; transition: background 150ms ease, border-color 150ms ease; }
+.wsp-save-chip:hover { background: color-mix(in srgb, var(--wsp-warn, #d29922) 24%, transparent); border-color: color-mix(in srgb, var(--wsp-warn, #d29922) 65%, transparent); }
+.wsp-save-chip:disabled { opacity: 0.6; cursor: default; }
 .wsp-row-click { cursor: pointer; }
 .wsp-row-click:focus-visible { outline: 2px solid var(--wsp-accent); outline-offset: -2px; }
 .wsp-dragging { opacity: 0.55; }
@@ -211,9 +244,13 @@ window.__ModuleLoader__.load({
 .wsp-chevron[draggable="true"] { cursor: grab; }
 .wsp-chevron:focus-visible { outline: 2px solid var(--wsp-accent); outline-offset: 1px; }
 .wsp-pname { font-size: 13px; font-weight: 600; letter-spacing: -0.005em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
-.wsp-chip { font-size: 10.5px; line-height: 1.7; padding: 0 7px; border-radius: 999px; background: var(--wsp-surface-3); color: var(--wsp-muted); font-family: var(--wsp-mono); max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsp-chip { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 9px; border: 1px solid var(--wsp-line); border-radius: 999px; font-size: 11.5px; line-height: 1; color: var(--wsp-muted); background: var(--wsp-surface-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wsp-chip-on { color: var(--wsp-success); border-color: color-mix(in srgb, var(--wsp-success) 45%, transparent); background: color-mix(in srgb, var(--wsp-success) 14%, transparent); }
+.wsp-chip-off { color: var(--wsp-muted-2); border-style: dashed; background: transparent; }
+.wsp-chip-mode { color: var(--wsp-mode); border-color: color-mix(in srgb, var(--wsp-mode) 40%, transparent); background: color-mix(in srgb, var(--wsp-mode) 12%, transparent); }
+.wsp-chip-mode-strong { color: var(--wsp-mode); border-color: color-mix(in srgb, var(--wsp-mode) 60%, transparent); background: color-mix(in srgb, var(--wsp-mode) 22%, transparent); font-weight: 500; }
+.wsp-chip-warn { color: var(--wsp-warn, #d29922); border-color: color-mix(in srgb, var(--wsp-warn, #d29922) 45%, transparent); background: color-mix(in srgb, var(--wsp-warn, #d29922) 14%, transparent); }
 .wsp-card-body { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 14px; border-top: 1px solid var(--wsp-line-soft); background: var(--wsp-surface); border-radius: 0 0 12px 12px; }
-.wsp-filter-note { font-size: 11px; color: var(--wsp-muted-2); }
 .wsp-search { display: flex; align-items: center; gap: 8px; }
 .wsp-search > *:first-child { flex: 1; }
 .wsp-conflict-notice { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--wsp-warn); padding: 6px 9px; border: 1px solid color-mix(in srgb, var(--wsp-warn) 35%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--wsp-warn) 8%, transparent); }
@@ -324,40 +361,60 @@ window.__ModuleLoader__.load({
   max-width: min(980px, 94vw) !important;
 }
 .wsp-chat-content { max-width: none !important; width: 100% !important; }
-.wsp-view { display: flex; flex-direction: column; gap: 18px; padding: 24px 28px 32px; overflow: auto; height: 100%; box-sizing: border-box; }
-.wsp-view-head { display: flex; align-items: flex-start; gap: 16px; max-width: 1080px; width: 100%; margin: 0 auto; }
+/* Fill the seat the shell hands us, the way dsh-context does (flex-1 + min-w-0); the column
+   inside centres itself with auto margins. Widths are relative: no pixel caps. */
+/* The seat is full width; the page keeps 80% of it and centres (narrow screens below use it all). */
+.wsp-view { display: flex; flex-direction: column; overflow: auto; height: 100%; box-sizing: border-box; padding: 2.5% 2% 4%; flex: 0 1 auto; width: 90%; min-width: 0; max-width: none; margin-inline: auto; align-self: stretch; }
+/* Inside the sidebar pane the column is narrow already: use all of it. */
+.wsp-view[data-host="sidebar"] { width: 100%; }
+/* Fluid column: it fills the conversation panel and only caps on very wide windows. */
+.wsp-shell { display: flex; flex-direction: column; gap: 20px; width: 100%; max-width: none; margin-inline: auto; }
+/* The manage panel reuses the settings component; centre it and let it fill the column. */
+.wsp-panel-area > * { width: 100%; max-width: none; margin-inline: auto; box-sizing: border-box; }
+/* The manage panel reuses the settings page: keep its chrome out of the tab, which has its own
+   header, so the reader sees one short line instead of two overlapping descriptions. */
+/* The manage panel reuses the settings component: its own heading and description would repeat
+   the tab's, but its counts and store path are the useful part and stay. */
+.wsp-panel-area .wsp-title, .wsp-panel-area .wsp-sub { display: none; }
+.wsp-view-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .wsp-view-headtext { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .wsp-view-title { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.3; color: var(--wsp-text); }
 .wsp-view-lead { margin: 0; font-size: 13px; line-height: 1.6; color: var(--wsp-muted); max-width: 68ch; }
-.wsp-view-headactions { margin-left: auto; display: flex; gap: 8px; }
-.wsp-view-body { display: flex; align-items: flex-start; gap: 20px; max-width: 1080px; width: 100%; margin: 0 auto; min-height: 0; }
-.wsp-rail { flex: 0 0 196px; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 0; }
-.wsp-rail-items { display: flex; flex-direction: column; gap: 2px; }
-.wsp-rail-item { display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; padding: 0 10px 0 8px; border: 0; border-radius: 8px; background: none; font: inherit; font-size: 13px; color: var(--wsp-muted); text-align: left; cursor: pointer; transition: background 150ms ease, color 150ms ease; }
-.wsp-rail-item:hover { background: var(--wsp-hover); color: var(--wsp-text); }
-.wsp-rail-item:focus-visible { outline: 2px solid var(--wsp-accent); outline-offset: 1px; }
-.wsp-rail-mark { flex: none; width: 3px; height: 16px; border-radius: 2px; background: transparent; }
-.wsp-rail-item-on { background: var(--wsp-surface-3); color: var(--wsp-text); font-weight: 500; box-shadow: var(--wsp-card-shadow); }
-.wsp-rail-item-on .wsp-rail-mark { background: var(--wsp-accent); }
-.wsp-rail-count { margin-left: auto; font-size: 11px; color: var(--wsp-muted-2); font-variant-numeric: tabular-nums; }
-.wsp-rail-foot { display: flex; flex-direction: column; gap: 3px; padding: 12px 10px 0; border-top: 1px solid var(--wsp-line-soft); }
-.wsp-rail-footname { font-size: 12.5px; font-weight: 500; color: var(--wsp-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wsp-rail-footmeta { font-size: 11.5px; color: var(--wsp-muted-2); font-variant-numeric: tabular-nums; }
-.wsp-panel-area { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
-.wsp-card-panel { display: flex; flex-direction: column; gap: 14px; padding: 16px 20px 20px; border: 1px solid var(--wsp-line); border-radius: 14px; background: var(--wsp-surface-2); box-shadow: var(--wsp-card-shadow); transition: box-shadow 200ms ease, border-color 200ms ease; }
-.wsp-card-panel:hover { border-color: var(--wsp-line-strong); }
-.wsp-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--wsp-line-soft); }
-.wsp-card-title::before { content: ''; display: inline-block; width: 3px; height: 13px; margin-right: 8px; border-radius: 2px; background: var(--wsp-accent); vertical-align: -1px; }
+.wsp-view-headactions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+/* Tabs live on top, and the active one is a colour + underline (ux: Active State). */
+.wsp-tabs { display: inline-flex; align-items: stretch; gap: 3px; height: 28px; padding: 0 3px; box-sizing: border-box; border: 1px solid var(--wsp-line); border-radius: 10px; background: rgba(128, 128, 128, 0.12); }
+.wsp-tab { display: inline-flex; align-items: center; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 12.5px; color: var(--wsp-muted); cursor: pointer; transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease; }
+.wsp-tab:hover { color: var(--wsp-text); background: var(--wsp-hover); }
+.wsp-tab:focus-visible { outline: 2px solid var(--wsp-accent); outline-offset: 2px; }
+.wsp-tab-on { background: var(--wsp-surface); color: var(--wsp-text); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08); }
+/* Enter transitions: opacity + a 4px lift only, so nothing reflows and there is no flash.
+   Each tab renders its own keyed panel, so the animation replays on every switch. */
+.wsp-panel-area { display: flex; flex-direction: column; gap: 16px; animation: wsp-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.wsp-shell > .wsp-view-head, .wsp-shell > .wsp-tabs { animation: wsp-enter 200ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes wsp-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* Reading something: a hairline bar at the top of the column, and the icon turns. */
+.wsp-progress { position: relative; height: 2px; margin: -6px 0 2px; border-radius: 999px; overflow: hidden; background: var(--wsp-line-soft); }
+.wsp-progress-bar { position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: 999px; background: var(--wsp-accent); animation: wsp-slide 1100ms ease-in-out infinite; }
+@keyframes wsp-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+.wsp-spin { animation: wsp-rotate 900ms linear infinite; }
+@keyframes wsp-rotate { to { transform: rotate(360deg); } }
+.wsp-card-panel { display: flex; flex-direction: column; gap: 14px; padding: 0 20px 20px; border: 1px solid var(--wsp-line); border-radius: 16px; background: var(--wsp-surface); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 8px 24px rgba(0, 0, 0, 0.06); overflow: hidden; transition: box-shadow 200ms ease, border-color 200ms ease; }
+.wsp-card-panel:hover { border-color: var(--wsp-line-strong); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06), 0 12px 28px rgba(0, 0, 0, 0.09); }
+.wsp-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 -20px; padding: 14px 20px; border-bottom: 1px solid var(--wsp-line-soft); }
 .wsp-card-title { margin: 0; font-size: 14.5px; font-weight: 600; color: var(--wsp-text); }
+.wsp-card-title::before { content: ''; display: inline-block; width: 3px; height: 13px; margin-right: 8px; border-radius: 2px; background: var(--wsp-accent); vertical-align: -1px; }
 .wsp-card-meta { font-size: 11.5px; color: var(--wsp-muted-2); font-variant-numeric: tabular-nums; }
-.wsp-card-note { margin: 0; font-size: 12.5px; line-height: 1.7; color: var(--wsp-muted); max-width: 72ch; }
+.wsp-card-note { margin: 0; font-size: 12.5px; line-height: 1.7; color: var(--wsp-muted); width: 100%; max-width: none; }
 .wsp-grow { flex: 1 1 auto; }
-.wsp-prose { font-size: 13px; line-height: 1.75; color: var(--wsp-text); }
-.wsp-prose-scroll { max-height: 58vh; overflow: auto; padding-right: 4px; }
-.wsp-mono { font-family: var(--dsw-font-markdown-code-font-family, ui-monospace, monospace); font-size: 11.5px; word-break: break-all; padding: 2px 6px; border-radius: 6px; background: var(--wsp-surface-3); color: var(--wsp-text); }
-.wsp-kv { display: grid; grid-template-columns: 84px 1fr; gap: 8px 14px; margin: 0; align-items: baseline; }
-.wsp-kv dt { font-size: 12px; color: var(--wsp-muted-2); }
-.wsp-kv dd { margin: 0; font-size: 12.5px; color: var(--wsp-text); }
+.wsp-tags { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wsp-prose { font-size: 13px; line-height: 1.75; color: var(--wsp-text); width: 100%; max-width: none; }
+.wsp-prose-scroll { padding-right: 4px; }
+.wsp-source { margin: 0; padding: 14px 16px; border: 1px solid var(--wsp-line-soft); border-radius: 10px; background: var(--wsp-surface-3); font-family: var(--dsw-font-markdown-code-font-family, ui-monospace, monospace); font-size: 12px; line-height: 1.7; color: var(--wsp-text); white-space: pre-wrap; word-break: break-word; }
+.wsp-switch { display: flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--wsp-line); border-radius: 9px; background: var(--wsp-surface); }
+.wsp-switch-item { border: 0; border-radius: 7px; background: none; font: inherit; font-size: 12px; padding: 3px 10px; color: var(--wsp-muted); cursor: pointer; transition: background 150ms ease, color 150ms ease; }
+.wsp-switch-item:hover { color: var(--wsp-text); }
+.wsp-switch-on { background: var(--wsp-surface-3); color: var(--wsp-text); box-shadow: var(--wsp-card-shadow); font-weight: 500; }
 .wsp-form { display: flex; flex-direction: column; gap: 14px; }
 .wsp-field { display: flex; flex-direction: column; gap: 6px; }
 .wsp-field-label { font-size: 12px; font-weight: 500; color: var(--wsp-muted); }
@@ -366,24 +423,59 @@ window.__ModuleLoader__.load({
 .wsp-form-text { width: 100%; min-height: 280px; resize: vertical; box-sizing: border-box; padding: 12px 14px; border: 1px solid var(--wsp-line); border-radius: 10px; font-family: var(--dsw-font-markdown-code-font-family, ui-monospace, monospace); font-size: 12.5px; line-height: 1.7; color: var(--wsp-text); background: var(--wsp-surface); transition: border-color 150ms ease; }
 .wsp-form-text:focus-visible { outline: 2px solid var(--wsp-accent); outline-offset: 1px; }
 .wsp-form-actions { display: flex; align-items: center; gap: 8px; }
-.wsp-alert { display: flex; align-items: center; gap: 8px; max-width: 1080px; width: 100%; margin: 0 auto; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--wsp-danger, #f85149) 40%, transparent); border-radius: 10px; font-size: 12.5px; color: var(--wsp-text); background: color-mix(in srgb, var(--wsp-danger, #f85149) 8%, transparent); box-sizing: border-box; }
-.wsp-skel { flex: 1 1 auto; display: flex; flex-direction: column; gap: 10px; }
+.wsp-alert { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--wsp-danger, #f85149) 40%, transparent); border-radius: 10px; font-size: 12.5px; color: var(--wsp-text); background: color-mix(in srgb, var(--wsp-danger, #f85149) 8%, transparent); box-sizing: border-box; }
+.wsp-skel { display: flex; flex-direction: column; gap: 10px; }
 .wsp-skel-line { height: 12px; border-radius: 6px; background: var(--wsp-surface-2); animation: wsp-pulse 1.4s ease-in-out infinite; }
 @keyframes wsp-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 .wsp-view button, .wsp-view [role="button"] { cursor: pointer; }
 .wsp-view textarea, .wsp-view input { cursor: text; }
-@media (prefers-reduced-motion: reduce) { .wsp-skel-line { animation: none; } .wsp-rail-item, .wsp-card-panel, .wsp-form-text { transition: none; } }
+@media (max-width: 640px) {
+  .wsp-view { padding: 16px 14px 24px; gap: 14px; }
+  .wsp-view-head { flex-direction: column; align-items: stretch; gap: 10px; }
+  .wsp-view-headactions { margin-left: 0; justify-content: space-between; }
+  .wsp-view-lead { font-size: 12.5px; }
+  .wsp-tabs { overflow-x: auto; padding-bottom: 0; }
+  .wsp-tab { flex: none; padding: 6px 14px 7px; }
+  .wsp-shell { gap: 16px; }
+  .wsp-view { width: 100%; padding: 4% 3% 6%; }
+  .wsp-card-panel { padding: 0 14px 16px; border-radius: 14px; }
+  .wsp-card-head { margin: 0 -14px; padding: 12px 14px; }
+  .wsp-card-title { font-size: 14px; }
+  .wsp-card-note, .wsp-prose { max-width: none; }
+  .wsp-form-text { min-height: 200px; font-size: 12px; }
+  .wsp-form-actions { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wsp-skel-line, .wsp-panel-area, .wsp-shell > .wsp-view-head, .wsp-shell > .wsp-tabs { animation: none; }
+  .wsp-tab, .wsp-card-panel, .wsp-form-text, .wsp-switch-item { transition: none; }
+  .wsp-spin { animation: none; }
+  .wsp-progress-bar { animation: none; width: 100%; }
+}
 .wsp-md { display: flex; flex-direction: column; gap: 6px; }
 .wsp-md-fallback { display: flex; flex-direction: column; gap: 4px; }
 .wsp-md-note { font-size: 10.5px; color: var(--wsp-warn, #d29922); }
 .wsp-plain { margin: 0; font-family: var(--wsp-mono, ui-monospace, Menlo, monospace); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.wsp-link-btn {
-  align-self: flex-start; border: 0; background: none; padding: 0 4px; cursor: pointer;
-  font: inherit; font-size: 11px; color: var(--wsp-accent, #58a6ff);
-  text-decoration: underline; text-underline-offset: 2px;
+/* A clipped message says so on its own row, behind a dashed rule, instead of running into the
+   prose — and carries the action that fixes it. */
+.wsp-trunc { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--wsp-line); font-size: 11.5px; color: var(--wsp-muted); }
+.wsp-trunc svg { flex: none; opacity: 0.8; color: var(--wsp-warn, #d29922); }
+.wsp-trunc-text { min-width: 0; }
+.wsp-trunc-quiet svg { display: none; }
+.wsp-trunc .wsp-expand-btn { margin-top: 0; margin-left: auto; }
+/* Expanding a clipped message: a pill, so it reads as an action and not as prose with an
+   underline. Visible surface at rest, darker on hover, ring on keyboard focus. */
+.wsp-expand-btn {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 4px;
+  height: 24px; padding: 0 10px 0 8px; margin-top: 2px;
+  border: 1px solid var(--wsp-line); border-radius: 999px; background: var(--wsp-surface-2);
+  font: inherit; font-size: 11.5px; line-height: 1; color: var(--wsp-muted); cursor: pointer;
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
 }
-.wsp-link-btn:disabled { opacity: 0.5; cursor: default; }
-.wsp-msg-mine .wsp-link-btn { align-self: flex-end; }
+.wsp-expand-btn:hover { color: var(--wsp-text); background: var(--wsp-hover); border-color: var(--wsp-line-strong); }
+.wsp-expand-btn:focus-visible { outline: 2px solid var(--wsp-accent); outline-offset: 1px; }
+.wsp-expand-btn:disabled { opacity: 0.6; cursor: default; }
+.wsp-expand-btn svg { flex: none; opacity: 0.75; }
+.wsp-msg-mine .wsp-expand-btn { align-self: flex-end; }
 .wsp-chat {
   display: flex; flex-direction: column; gap: 16px;
   max-height: 64vh; overflow: auto; padding: 6px 4px;
@@ -543,7 +635,7 @@ window.__ModuleLoader__.load({
     class PersonaView extends React.Component {
       constructor(props) {
         super(props === undefined || props === null ? {} : props)
-        this.state = { loading: true, data: null, error: '', busy: '', draft: null, showPrompt: true, editing: false, copied: false, tab: 'persona' }
+        this.state = { loading: true, data: null, error: '', busy: '', draft: null, editing: false, copied: false, tab: 'persona', promptView: 'render' }
       }
 
       componentDidMount() {
@@ -592,6 +684,7 @@ window.__ModuleLoader__.load({
             id: data.persona.id,
             name: draft.name,
             enabled: data.persona.enabled,
+            fallback: draft.fallback === true,
             mode: draft.mode,
             text: draft.text,
             targets: data.persona.targets ?? [],
@@ -620,56 +713,62 @@ window.__ModuleLoader__.load({
       }
 
       render() {
-        const { data, draft, error, busy, showPrompt, loading, editing, copied, tab } = this.state
+        const { data, draft, error, busy, loading, editing, copied, tab, promptView } = this.state
         const persona = data?.persona ?? null
         const dirty = persona !== null && draft !== null
           && (draft.text !== persona.text || draft.name !== persona.name || draft.mode !== persona.mode)
         const matched = data?.matchedBy ?? []
+        const prompt = data?.prompt ?? null
 
         const TABS = [
           { id: 'persona', label: '人设' },
-          { id: 'prompt', label: 'System Prompt' },
-          { id: 'match', label: '命中依据' },
+          { id: 'prompt', label: '提示词' },
+          { id: 'manage', label: '管理' },
         ]
-
-        const rail = h('nav', { className: 'wsp-rail', key: 'rail', role: 'tablist', 'aria-label': '人设视图' }, [
-          h('div', { className: 'wsp-rail-items', key: 'items' }, TABS.map((item) => h('button', {
-            key: item.id,
-            type: 'button',
-            role: 'tab',
-            'aria-selected': tab === item.id,
-            className: tab === item.id ? 'wsp-rail-item wsp-rail-item-on' : 'wsp-rail-item',
-            onClick: () => this.setState({ tab: item.id }),
-          }, [
-            h('span', { className: 'wsp-rail-mark', key: 'm', 'aria-hidden': 'true' }),
-            h('span', { key: 'l' }, item.label),
-            item.id === 'match' && matched.length > 0 ? h('span', { className: 'wsp-rail-count', key: 'c' }, String(matched.length)) : null,
-          ]))),
-          h('div', { className: 'wsp-rail-foot', key: 'foot' }, persona === null
-            ? [h('span', { className: 'wsp-rail-footname', key: 'n' }, '未命中人设')]
-            : [
-              h('span', { className: 'wsp-rail-footname', key: 'n', title: persona.name }, persona.name),
-              h('span', { className: 'wsp-rail-footmeta', key: 'm' }, `${persona.mode === 'replace' ? '替换' : '追加'} · ${persona.enabled ? '在用' : '已停用'} · ${persona.text.length} 字`),
-            ]),
-        ])
+        const tabs = h('div', { className: 'wsp-tabs', key: 'tabs', role: 'tablist' }, TABS.map((item) => h('button', {
+          key: item.id,
+          type: 'button',
+          role: 'tab',
+          'aria-selected': tab === item.id,
+          className: tab === item.id ? 'wsp-tab wsp-tab-on' : 'wsp-tab',
+          onClick: () => {
+            if (item.id === tab) return
+            const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+            this.setState({ tab: item.id })
+            this.scroller?.scrollTo?.({ top: 0, behavior: reduce ? 'auto' : 'smooth' })
+            // 人设可以在「管理」里被启用/停用/改范围，所以这两个标签每次都重新读一遍，
+            // 不然显示的会是上一次的结果。
+            if (item.id !== 'manage') void this.load()
+          },
+        }, item.label)))
 
         const header = h('header', { className: 'wsp-view-head', key: 'head' }, [
           h('div', { className: 'wsp-view-headtext', key: 't' }, [
-            h('h2', { className: 'wsp-view-title', key: 'h' }, '人设'),
-            h('p', { className: 'wsp-view-lead', key: 'p' }, '这条会话使用的系统提示词人设，以及模型最近一次真正收到的完整 system prompt。'),
+            h('h2', { className: 'wsp-view-title', key: 'h' }, 'Agent 人设'),
+            h('p', { className: 'wsp-view-lead', key: 'p' }, '查看当前会话的人设、实际发送的提示词，以及管理全部人设。'),
           ]),
+          busy === '' ? null : h('div', { className: 'wsp-progress', key: 'prog', role: 'status', 'aria-label': '正在读取' },
+            h('span', { className: 'wsp-progress-bar' })),
           h('div', { className: 'wsp-view-headactions', key: 'a' }, [
-            h(Button, { key: 'reload', variant: 'ghost', size: 'sm', disabled: busy === 'load', onClick: () => void this.load() },
-              busy === 'load' ? '读取中…' : '重新读取'),
+            tabs,
+            h(Button, {
+              key: 'reload',
+              variant: 'outline',
+              size: 'sm',
+              icon: h(IconRefreshOutline16, { className: busy === 'load' ? 'wsp-spin' : undefined }),
+              disabled: busy === 'load',
+              onClick: () => void this.load(),
+            }, busy === 'load' ? '刷新中…' : '刷新'),
           ]),
         ])
+
 
         const alerts = []
         if (error !== '') {
           alerts.push(h('div', { className: 'wsp-alert', role: 'alert', key: 'err' }, [
             h(IconWarningOutline16, { key: 'i' }),
             h('span', { key: 't' }, error),
-            h(Button, { key: 'r', variant: 'ghost', size: 'sm', onClick: () => void this.load() }, '重试'),
+            h(Button, { key: 'r', variant: 'outline', size: 'sm', onClick: () => void this.load() }, '重试'),
           ]))
         }
 
@@ -677,9 +776,11 @@ window.__ModuleLoader__.load({
           h('div', { className: 'wsp-card-head', key: 'h' }, [
             h('h3', { className: 'wsp-card-title', key: 't' }, opts.title),
             opts.meta === undefined ? null : h('span', { className: 'wsp-card-meta', key: 'm' }, opts.meta),
+            ...(opts.tags ?? []),
             h('span', { className: 'wsp-grow', key: 'g' }),
             ...(opts.actions ?? []),
           ]),
+          ...(opts.extra ?? []),
           opts.note === undefined ? null : h('p', { className: 'wsp-card-note', key: 'n' }, opts.note),
           ...(opts.body ?? []),
         ])
@@ -691,20 +792,44 @@ window.__ModuleLoader__.load({
             h('div', { className: 'wsp-skel-line', key: 'b', style: { width: '92%' } }),
             h('div', { className: 'wsp-skel-line', key: 'c', style: { width: '74%' } }),
           ]))
-        } else if (persona === null) {
-          panel = h('div', { className: 'wsp-panel-area', key: 'empty' }, card({
-            key: 'c',
-            title: '没有命中任何人设',
-            note: '这条会话使用 DSH 原生 system prompt。要给它指定人设，去「设置 → Agent人设」新建一条，并把适用范围指到这条会话或它的工作区。',
-          }))
         } else if (tab === 'persona') {
+          if (persona === null) {
+            // No persona matched: this session runs on DSH's own system prompt. Say exactly that,
+            // and let 提示词 show that prompt verbatim rather than dressing the case up.
+            panel = h('div', { className: 'wsp-panel-area', key: 'empty' }, card({
+              key: 'c',
+              title: '这条会话没有命中任何人设',
+              note: '它使用 DSH 自带的 system prompt —— 在「提示词」里可以看到完整内容。要给它指定人设，去「管理」新建一条，并把适用范围指到这条会话或它的工作区。',
+            }))
+          } else {
           panel = h('div', { className: 'wsp-panel-area', key: 'persona' }, card({
             key: 'c',
             title: persona.name,
-            meta: dirty ? '有未保存的修改' : undefined,
+            meta: undefined,
+            tags: [
+              h('span', { className: 'wsp-card-meta', key: 'n' }, `${persona.text.length} 字`),
+              h('span', {
+                key: 'e',
+                className: persona.enabled ? 'wsp-chip wsp-chip-on' : 'wsp-chip wsp-chip-off',
+                title: persona.enabled ? '这条人设已启用，会参与注入' : '这条人设已停用，不参与注入',
+              }, persona.enabled ? '在用' : '已停用'),
+              persona.fallback === true
+                ? h('span', { className: 'wsp-chip wsp-chip-on', key: 'fb', title: '未命中任何位置的会话都用这条人设' }, '默认人设')
+                : null,
+              h('span', {
+                key: 'm',
+                className: persona.mode === 'replace' ? 'wsp-chip wsp-chip-mode-strong' : 'wsp-chip wsp-chip-mode',
+                title: persona.mode === 'replace'
+                  ? '替换：DSH 自带的身份句与部署身份都去掉，只用这条人设'
+                  : '追加：DSH 自带的身份说明保留，这条人设接在后面',
+              }, persona.mode === 'replace' ? '替换 DSH 身份' : '追加在 DSH 身份之后'),
+              dirty
+                ? h('span', { key: 'd', className: 'wsp-chip wsp-chip-warn', title: '编辑区的内容与已保存的正文不一致' }, '有未保存的修改')
+                : null,
+            ],
             actions: [
-              h(Button, { key: 'edit', variant: editing ? 'ghost' : 'outline', size: 'sm', onClick: () => this.setState({ editing: !editing }) },
-                editing ? '取消编辑' : '编辑'),
+              h(Button, { key: 'edit', variant: 'outline', size: 'sm', onClick: () => this.setState({ editing: !editing }) },
+                editing ? '取消编辑' : '编辑正文'),
             ],
             body: [
               editing && draft !== null
@@ -712,6 +837,17 @@ window.__ModuleLoader__.load({
                   h('label', { className: 'wsp-field', key: 'name' }, [
                     h('span', { className: 'wsp-field-label', key: 'l' }, '名称'),
                     h(Input, { key: 'i', value: draft.name, onChange: (event) => this.patch({ name: event.target.value }) }),
+                  ]),
+                  h('div', { className: 'wsp-field', key: 'fallback' }, [
+                    h('span', { className: 'wsp-field-label', key: 'l' }, '默认人设'),
+                    h('div', { className: 'wsp-seg', key: 's' }, [
+                      h(Switch, {
+                        key: 'fb',
+                        checked: draft.fallback === true,
+                        label: '作为默认人设（未命中任何位置的会话都用它，同一时刻只能有一条）',
+                        onChange: (next) => this.patchDraft({ fallback: next }),
+                      }),
+                    ]),
                   ]),
                   h('div', { className: 'wsp-field', key: 'mode' }, [
                     h('span', { className: 'wsp-field-label', key: 'l' }, '注入方式'),
@@ -736,7 +872,7 @@ window.__ModuleLoader__.load({
                   h('div', { className: 'wsp-form-actions', key: 'a' }, [
                     h('span', { className: 'wsp-card-meta', key: 'c' }, `${draft.text.length} 字 · 保存后下一个请求生效`),
                     h('span', { className: 'wsp-grow', key: 'g' }),
-                    h(Button, { key: 'cancel', variant: 'ghost', size: 'sm', disabled: busy !== '', onClick: () => this.setState({ editing: false }) }, '放弃修改'),
+                    h(Button, { key: 'cancel', variant: 'outline', size: 'sm', disabled: busy !== '', onClick: () => this.setState({ editing: false }) }, '放弃修改'),
                     h(Button, {
                       key: 'save',
                       variant: 'primary',
@@ -747,47 +883,35 @@ window.__ModuleLoader__.load({
                   ]),
                 ])
                 : h('div', { className: 'wsp-prose', key: 'body' }, h(SafeMarkdown, { text: draft?.text ?? persona.text })),
-            ],
-          }))
-        } else if (tab === 'prompt') {
-          const prompt = data?.prompt ?? null
+              ],
+            }))
+          }
+        } else if (tab === 'manage') {
+          panel = h('div', { className: 'wsp-panel-area', key: 'manage' },
+            h(WorkspacePersonaSection, { key: 'settings', api: this.props?.api ?? capturedApi }))
+        } else {
           panel = h('div', { className: 'wsp-panel-area', key: 'prompt' }, card({
             key: 'c',
-            title: '完整 system prompt',
+            title: 'System Prompt',
             meta: prompt === null ? '还没有记录' : `${prompt.length} 字 · 最近一次实际发送`,
             note: prompt === null ? '这条会话还没有发起过请求，因此没有 system prompt 记录。' : undefined,
             actions: prompt === null ? [] : [
-              h(Button, { key: 'copy', variant: 'ghost', size: 'sm', onClick: () => void this.copyPrompt() }, copied ? '已复制' : '复制'),
-              h(Button, { key: 'toggle', variant: 'outline', size: 'sm', onClick: () => this.setState({ showPrompt: !showPrompt }) }, showPrompt ? '收起' : '展开'),
-            ],
-            body: prompt !== null && showPrompt
-              ? [h('div', { className: 'wsp-prose wsp-prose-scroll', key: 'b' }, h(SafeMarkdown, { text: prompt }))]
-              : [],
-          }))
-        } else {
-          panel = h('div', { className: 'wsp-panel-area', key: 'match' }, card({
-            key: 'c',
-            title: '命中依据',
-            meta: data?.cwd === null || data?.cwd === undefined ? undefined : '按最具体的规则判定',
-            body: [
-              h('dl', { className: 'wsp-kv', key: 'kv' }, [
-                h('dt', { key: 'k1' }, '会话'), h('dd', { className: 'wsp-mono', key: 'v1' }, data?.id ?? '—'),
-                h('dt', { key: 'k2' }, '工作区'), h('dd', { className: 'wsp-mono', key: 'v2' }, data?.cwd ?? '—'),
-                h('dt', { key: 'k3' }, '命中规则'), h('dd', { key: 'v3' }, matched.length === 0 ? '兜底（没有范围限制）' : ''),
-                ...matched.flatMap((t, index) => [
-                  h('dt', { key: `t${index}` }, ''), h('dd', { className: 'wsp-mono', key: `d${index}` },
-                    `${t.kind === 'workspace' ? '工作区' : '会话'} · ${t.match} · ${t.value}`),
-                ]),
+              h('div', { className: 'wsp-switch', key: 'sw' }, [
+                h('button', { key: 'r', type: 'button', className: promptView === 'render' ? 'wsp-switch-item wsp-switch-on' : 'wsp-switch-item', onClick: () => this.setState({ promptView: 'render' }) }, '渲染'),
+                h('button', { key: 's', type: 'button', className: promptView === 'source' ? 'wsp-switch-item wsp-switch-on' : 'wsp-switch-item', onClick: () => this.setState({ promptView: 'source' }) }, '源码'),
               ]),
+              h(Button, { key: 'copy', variant: 'outline', size: 'sm', onClick: () => void this.copyPrompt() }, copied ? '已复制' : '复制'),
             ],
+            body: prompt === null
+              ? []
+              : [promptView === 'source'
+                ? h('pre', { className: 'wsp-source', key: 'src' }, prompt)
+                : h('div', { className: 'wsp-prose wsp-prose-scroll', key: 'md' }, h(SafeMarkdown, { text: prompt }))],
           }))
         }
 
-        return h('div', { className: 'wsp-view', 'data-plugin': NS }, [
-          header,
-          ...alerts,
-          h('div', { className: 'wsp-view-body', key: 'body' }, [rail, panel]),
-        ])
+        return h('div', { className: 'wsp-view', ref: (node) => { this.scroller = node }, 'data-plugin': NS, 'data-host': this.props?.host === 'sidebar' ? 'sidebar' : undefined },
+          h('div', { className: 'wsp-shell' }, [header, ...alerts, panel]))
       }
     }
 
@@ -854,7 +978,7 @@ const since = (timestamp) => {
     class WorkspacePersonaSection extends React.Component {
       constructor(props) {
         super(props === undefined || props === null ? {} : props)
-        this.state = {
+        this.state = { prefs: readPrefs(),
           view: undefined,
           openId: undefined,
           draft: undefined,
@@ -901,6 +1025,7 @@ const since = (timestamp) => {
       }
 
       componentWillUnmount() {
+        clearTimeout(this.autosaveTimer)
         this.mounted = false
         document.removeEventListener('keydown', this.onKeyDown)
       }
@@ -1166,6 +1291,7 @@ const since = (timestamp) => {
           id: persona.id,
           name: persona.name,
           enabled: persona.enabled,
+          fallback: persona.fallback === true,
           mode: persona.mode === 'replace' ? 'replace' : 'append',
           text: persona.text,
           targets: (persona.targets || []).map((target) => ({ kind: target.kind, match: target.match, value: target.value })),
@@ -1229,6 +1355,7 @@ const since = (timestamp) => {
         const shape = (value) => JSON.stringify({
           n: value.name,
           e: value.enabled,
+          f: value.fallback === true,
           m: value.mode ?? 'append',
           t: value.text,
           g: (value.targets ?? []).map((target) => [target.kind, target.match, target.value]),
@@ -1236,29 +1363,65 @@ const since = (timestamp) => {
         return shape(draft) !== shape(saved)
       }
 
-      patchDraft(patch) {
+      /** Persist one interface preference. The two position switches apply on the next page load. */
+      setPref(patch) {
+        const next = writePrefs(patch)
+        const needsReload = ('showTab' in patch || 'showSidebar' in patch)
+        this.onChange({
+          prefs: next,
+          status: needsReload
+            ? '已保存：显示位置在重新打开页面后生效'
+            : (next.autosave ? '已开启：编辑后停止输入约 1 秒即自动保存' : '已关闭：编辑后自动保存'),
+        })
+      }
+
+      /** Debounced autosave, armed only while the preference is on. */
+      scheduleAutosave() {
+        if (this.state.prefs?.autosave !== true) return
+        clearTimeout(this.autosaveTimer)
+        this.autosaveTimer = setTimeout(() => {
+          this.autosaveTimer = undefined
+          this.onChange({ status: '正在自动保存…' })
+          void this.save()
+        }, 1200)
+      }
+
+      /**
+       * @param patch - the fields to merge into the draft.
+       * @param options.autosave - false for edits that are only one step of a longer choice
+       *   (picking a workspace/session, adding or removing a rule row). Those must not save on
+       *   their own: the row would be stored half-filled, and a queued autosave from an earlier
+       *   edit would land in the middle of the picking.
+       */
+      patchDraft(patch, options = {}) {
         const draft = this.state.draft
         if (draft === undefined) return
         this.onChange({ draft: Object.assign({}, draft, patch) })
+        if (options.autosave === false) {
+          clearTimeout(this.autosaveTimer)
+          this.autosaveTimer = undefined
+        } else {
+          this.scheduleAutosave()
+        }
       }
 
       patchTarget(index, patch) {
         const draft = this.state.draft
         if (draft === undefined) return
         const targets = draft.targets.map((target, i) => (i === index ? Object.assign({}, target, patch) : target))
-        this.patchDraft({ targets })
+        this.patchDraft({ targets }, { autosave: false })
       }
 
       addTarget() {
         const draft = this.state.draft
         if (draft === undefined) return
-        this.patchDraft({ targets: [...draft.targets, { kind: 'workspace', match: 'exact', value: '' }] })
+        this.patchDraft({ targets: [...draft.targets, { kind: 'workspace', match: 'exact', value: '' }] }, { autosave: false })
       }
 
       removeTarget(index) {
         const draft = this.state.draft
         if (draft === undefined) return
-        this.patchDraft({ targets: draft.targets.filter((_target, i) => i !== index) })
+        this.patchDraft({ targets: draft.targets.filter((_target, i) => i !== index) }, { autosave: false })
       }
 
       async create() {
@@ -1280,6 +1443,38 @@ const since = (timestamp) => {
         }
       }
 
+      /** Flip one persona on or off straight from the list, without opening its card. */
+      async toggleEnabled(persona, checked) {
+        const api = this.api()
+        if (api === undefined) return
+        this.onChange({ busy: 'save' })
+        try {
+          const view = this.unwrap(await api.savePersona({
+            id: persona.id,
+            name: persona.name,
+            enabled: checked,
+            fallback: persona.fallback === true,
+            mode: persona.mode,
+            text: persona.text,
+            targets: persona.targets ?? [],
+          }))
+          // The switch writes straight to the store, so an open card's draft has to follow it:
+          // otherwise the draft keeps the old value, the card reads as 未保存, and pressing 保存
+          // puts the old value back (the switch's change silently undone).
+          const openDraft = this.state.openId === persona.id && this.state.draft !== undefined && this.state.draft !== null
+            ? { ...this.state.draft, enabled: checked }
+            : undefined
+          this.onChange({
+            view,
+            busy: '',
+            status: checked ? `已启用「${persona.name}」` : `已停用「${persona.name}」`,
+            ...(openDraft === undefined ? {} : { draft: openDraft }),
+          })
+        } catch (error) {
+          this.onChange({ busy: '', status: `保存失败：${String((error && error.message) || error)}` })
+        }
+      }
+
       async save() {
         const api = this.api()
         const draft = this.state.draft
@@ -1290,6 +1485,7 @@ const since = (timestamp) => {
             id: draft.id,
             name: draft.name,
             enabled: draft.enabled,
+            fallback: draft.fallback === true,
             mode: draft.mode,
             text: draft.text,
             targets: draft.targets,
@@ -1401,7 +1597,7 @@ const since = (timestamp) => {
           return this.renderBody()
         } catch (error) {
           return h('div', { className: 'wsp-status wsp-status-err', 'data-plugin': SCOPE },
-            `Agent人设页渲染异常：${String((error && error.message) || error)}`)
+            `Agent 人设页渲染异常：${String((error && error.message) || error)}`)
         }
       }
 
@@ -1420,7 +1616,7 @@ const since = (timestamp) => {
         // only the counts, the store path and the cards wait for the host. Nobody
         // should stare at "加载中…" for content that never changes.
         const header = h('div', { className: 'wsp-head', key: 'head' }, [
-          h('h2', { className: 'wsp-title', key: 't' }, 'Agent人设'),
+          h('h2', { className: 'wsp-title', key: 't' }, 'Agent 人设'),
           h('p', { className: 'wsp-sub', key: 's' }, DESCRIPTION),
           h('div', { className: 'wsp-meta', key: 'm' }, view === undefined
             ? ['正在读取人设…']
@@ -1458,7 +1654,7 @@ const since = (timestamp) => {
           const toggle = () => (isOpen ? this.close() : this.open(persona))
           return h('div', {
             key: `h${persona.id}`,
-            className: isOpen ? 'wsp-row-head wsp-row-open wsp-row-click' : 'wsp-row-head wsp-row-click',
+            className: isOpen ? 'wsp-row-head wsp-row-open wsp-row-click' : 'wsp-row-head wsp-row-click wsp-row-head-switch',
             role: isOpen ? undefined : 'button',
             'aria-expanded': isOpen,
             tabIndex: isOpen ? undefined : 0,
@@ -1503,8 +1699,25 @@ const since = (timestamp) => {
               key: 'b1',
               tone: persona.enabled ? (persona.text.trim() === '' ? 'warn' : 'on') : 'off',
             }, persona.enabled ? (persona.text.trim() === '' ? '在用·正文空' : '在用') : '已停用'),
+            ...(persona.fallback === true ? [h(Badge, { key: 'fb', tone: 'on', title: '未命中任何位置的会话都用这条人设' }, '默认')] : []),
             ...(conflicts.has(persona.id) ? [h(Badge, { key: 'conflict', tone: 'warn', title: (conflicts.get(persona.id) ?? []).join('\n') }, '可能被覆盖')] : []),
-            ...(state.openId === persona.id && this.isDirty() ? [h(Badge, { key: 'dirty', tone: 'warn' }, '未保存')] : []),
+            ...(state.openId === persona.id && this.isDirty()
+              ? [h('button', {
+                key: 'dirty',
+                type: 'button',
+                className: 'wsp-save-chip',
+                title: '编辑区与已保存的内容不一致：点这里立即保存',
+                disabled: state.busy !== '',
+                onClick: (event) => { event.stopPropagation(); void this.save() },
+              }, state.busy === 'save' ? '保存中…' : '未保存 · 点击保存')]
+              : []),
+            h('span', { key: 'on', className: 'wsp-row-switch', onClick: (event) => event.stopPropagation() },
+              h(Switch, {
+                checked: persona.enabled,
+                disabled: state.busy !== '',
+                label: persona.enabled ? '已启用，点击停用' : '已停用，点击启用',
+                onChange: (checked) => void this.toggleEnabled(persona, checked),
+              })),
             h('span', { className: 'wsp-caption', key: 'c' }, `${persona.chars} 字`),
             h(Menu, {
               key: 'more',
@@ -1517,9 +1730,7 @@ const since = (timestamp) => {
                 { type: 'separator', id: 'sep-order' },
                 { id: 'duplicate', label: '复制一份（副本默认停用）', icon: h(IconEditOutline16, {}) },
                 { type: 'separator', id: 'sep' },
-                state.confirmDelete === persona.id
-                  ? { id: 'delete', label: '确认删除', icon: h(IconTrashOutline16, {}), danger: true }
-                  : { id: 'delete', label: '删除', icon: h(IconTrashOutline16, {}), danger: true },
+                { id: 'delete', label: '删除…', icon: h(IconTrashOutline16, {}), danger: true },
               ],
               onSelect: (id) => {
                 this.onChange({ menu: undefined })
@@ -1527,8 +1738,9 @@ const since = (timestamp) => {
                 if (id === 'down') void this.move(persona.id, 1)
                 if (id === 'duplicate') void this.duplicate(persona.id)
                 if (id === 'delete') {
-                  if (state.confirmDelete === persona.id) void this.remove(persona.id)
-                  else this.onChange({ confirmDelete: persona.id })
+                  // Straight to a confirmation dialog: the menu closes itself on select, so an
+                  // in-menu "确认删除" state was never visible and the delete looked broken.
+                  this.onChange({ confirmDelete: persona.id, menu: undefined })
                 }
               },
               onClose: () => this.onChange({ menu: undefined }),
@@ -1580,7 +1792,7 @@ const since = (timestamp) => {
         const scopeLines = (persona) => h('div', { className: 'wsp-scope-lines', key: 'sl' }, (persona.targets ?? []).length === 0
           ? [h('div', { className: 'wsp-scope-line', key: 'default' }, [
             h('span', { className: 'wsp-scope-label', key: 'l' }, '范围'),
-            h('span', { className: 'wsp-chip', key: 'c' }, '默认：所有没被别的 Agent 人设占用的会话'),
+            h('span', { className: persona.fallback === true ? 'wsp-chip wsp-chip-on' : 'wsp-chip wsp-chip-warn', key: 'c' }, persona.fallback === true ? '默认人设：未命中位置的会话都用它' : '未设置位置：不生效，该会话仍用 DSH 自带的 prompt'),
           ])]
           : [scopeLine(persona, 'workspace', '工作区'), scopeLine(persona, 'sessionId', '会话')])
 
@@ -1766,6 +1978,19 @@ const since = (timestamp) => {
                 }),
               ]),
             ]),
+            h('div', { className: 'wsp-field-row', key: 'fallback' }, [
+              h('div', { className: 'wsp-field', key: 'f' }, [
+                h('span', { className: 'wsp-label', key: 'l' }, '默认人设'),
+                h('div', { className: 'wsp-kind', key: 'k', role: 'group', 'aria-label': '默认人设' }, [
+                  h(Switch, {
+                    key: 'fb',
+                    checked: draft.fallback === true,
+                    label: '作为默认人设：未命中任何位置的会话都用它（同一时刻只能有一条）',
+                    onChange: (next) => this.patchDraft({ fallback: next }),
+                  }),
+                ]),
+              ]),
+            ]),
             h('div', { className: 'wsp-field-row', key: 'mode' }, [
               h('div', { className: 'wsp-field', key: 'f' }, [
                 h('span', { className: 'wsp-label', key: 'l' }, '注入方式'),
@@ -1796,7 +2021,9 @@ const since = (timestamp) => {
                 }, '再加一个位置'),
                 h('span', { className: 'wsp-spacer', key: 'sp' }),
                 h('span', { className: targets.length === 0 ? 'wsp-hint wsp-warn' : 'wsp-hint', key: 'h' }, targets.length === 0
-                  ? '一个位置都没加 → 这条人设会用在所有没被前面人设覆盖的会话上（相当于默认人设）'
+                  ? (draft.fallback === true
+                    ? '一个位置都没加，但它是默认人设 → 所有未命中任何位置的会话都用它'
+                    : '一个位置都没加 → 这条人设不生效，相关会话继续使用 DSH 自带的 system prompt')
                   : `共 ${targets.length} 个位置`),
               ]),
             ]),
@@ -1909,11 +2136,7 @@ const since = (timestamp) => {
           }, '清空'),
         ])
 
-        const hidden = state.targets.hidden ?? { subagents: 0, archived: 0, blank: 0 }
-        const hiddenTotal = (hidden.subagents ?? 0) + (hidden.archived ?? 0) + (hidden.blank ?? 0)
-        const hiddenNote = hiddenTotal === 0 ? null
-          : h('div', { className: 'wsp-filter-note', key: 'hidden' },
-            `会话下拉里只列可交互的会话（已隐藏 ${hidden.subagents} 个子 agent、${hidden.archived} 个已归档、${hidden.blank} 个空会话）`)
+        const hiddenNote = null
 
         const conflictNotice = conflicts.size === 0 ? null : h('div', { className: 'wsp-conflict-notice', key: 'conflicts' }, [
           h(IconWarningOutline16, { key: 'i' }),
@@ -2023,27 +2246,72 @@ const since = (timestamp) => {
               h('div', { className: 'wsp-msg-col', key: 'c' }, [
                 h('span', { className: 'wsp-msg-who', key: 'w' }, [
                   mine ? '你' : 'Agent',
-                  message.truncated === true ? ' · 太长已截断' : null,
                 ]),
-                h('div', { className: mine ? 'wsp-bubble wsp-bubble-mine' : 'wsp-bubble', key: 'b' },
-                  h(SafeMarkdown, {
-                    text: message.text,
-                  })),
-                message.truncated === true || message.expanded === true
-                  ? h('button', {
-                    key: 'exp',
-                    type: 'button',
-                    className: 'wsp-link-btn',
-                    disabled: state.historyBusy === `msg:${i}`,
-                    title: message.expanded === true ? '只显示前 1000 字' : '读取这条消息的完整内容（只重画这一个气泡）',
-                    onClick: () => void (message.expanded === true ? this.collapseMessage(i) : this.expandMessage(i)),
-                  }, state.historyBusy === `msg:${i}` ? '展开中…' : message.expanded === true ? '收起全文' : '展开全文')
-                  : null,
+                h('div', { className: mine ? 'wsp-bubble wsp-bubble-mine' : 'wsp-bubble', key: 'b' }, [
+                  h(SafeMarkdown, { key: 'md', text: message.text }),
+                  message.truncated === true && message.expanded !== true
+                  ? h('div', { className: 'wsp-trunc', key: 'trunc' }, [
+                  h(IconWarningOutline16, { key: 'i' }),
+                  h('span', { className: 'wsp-trunc-text', key: 't' }, `内容过长，只显示开头（前 ${(message.shortText ?? message.text ?? '').length} 字）`),
+                  h('button', {
+                  key: 'exp',
+                  type: 'button',
+                  className: 'wsp-expand-btn',
+                  disabled: state.historyBusy === `msg:${i}`,
+                  title: '读取这条消息的完整内容（只重画这一个气泡）',
+                  onClick: () => void this.expandMessage(i),
+                  }, [
+                  h(IconChevronDownOutline14, { key: 'i' }),
+                  h('span', { key: 'l' }, state.historyBusy === `msg:${i}` ? '展开中…' : '展开全文'),
+                  ]),
+                  ])
+                  : message.expanded === true
+                  ? h('div', { className: 'wsp-trunc wsp-trunc-quiet', key: 'trunc' }, [
+                  h('span', { className: 'wsp-trunc-text', key: 't' }, '已显示全文'),
+                  h('button', {
+                  key: 'exp',
+                  type: 'button',
+                  className: 'wsp-expand-btn',
+                  disabled: state.historyBusy === `msg:${i}`,
+                  title: '只显示前一段',
+                  onClick: () => void this.collapseMessage(i),
+                  }, [
+                  h(IconChevronUpOutline14, { key: 'i' }),
+                  h('span', { key: 'l' }, '收起全文'),
+                  ]),
+                  ])
+                  : null
+                ]),
+
               ]),
             ])
           }))))
 
-        return h('div', rootProps, [header, searchRow, hiddenNote, conflictNotice, h('div', { className: 'wsp-cards', key: 'cards' }, cards), status, historyModal])
+        const prefs = state.prefs ?? DEFAULT_PREFS
+        const prefsRow = h('div', { className: 'wsp-prefs', key: 'prefs' }, [
+          h(Switch, { key: 'auto', checked: prefs.autosave === true, label: '编辑后自动保存', onChange: (next) => this.setPref({ autosave: next }) }),
+          h(Switch, { key: 'tab', checked: prefs.showTab !== false, label: '在对话页显示「人设」标签', onChange: (next) => this.setPref({ showTab: next }) }),
+          sidebarAvailable
+            ? h(Switch, { key: 'side', checked: prefs.showSidebar !== false, label: '在侧边栏显示', onChange: (next) => this.setPref({ showSidebar: next }) })
+            : null,
+        ])
+
+        const pendingDelete = state.confirmDelete === undefined || state.confirmDelete === null
+          ? undefined
+          : personas.find((item) => item.id === state.confirmDelete)
+        const confirmModal = pendingDelete === undefined ? null : h(Modal, {
+          key: 'confirm',
+          open: true,
+          onClose: () => this.onChange({ confirmDelete: undefined }),
+          title: '删除这条人设？',
+          description: `「${pendingDelete.name}」会从存储里移除，无法撤销。`,
+          footer: h('div', { className: 'wsp-form-actions' }, [
+            h(Button, { key: 'cancel', variant: 'outline', size: 'sm', onClick: () => this.onChange({ confirmDelete: undefined }) }, '取消'),
+            h(Button, { key: 'ok', variant: 'primary', size: 'sm', disabled: busy, onClick: () => void this.remove(pendingDelete.id) }, '删除'),
+          ]),
+        }, h('div', { className: 'wsp-card-note' }, `名称：${pendingDelete.name}　·　${pendingDelete.chars} 字　·　${pendingDelete.targets?.length ?? 0} 条适用范围`))
+
+        return h('div', rootProps, [header, prefsRow, searchRow, hiddenNote, conflictNotice, h('div', { className: 'wsp-cards', key: 'cards' }, cards), status, historyModal, confirmModal])
       }
     }
 
@@ -2056,7 +2324,9 @@ const since = (timestamp) => {
       ctx.effect(() => () => style.remove(), `${NS}: styles`)
 
       // Register SYNCHRONOUSLY so the entry is live for the renderer's first pass.
-      ctx.slots.inject('conversation.view', () => ctx.slots.register({
+      const prefs = readPrefs()
+
+      if (prefs.showTab) ctx.slots.inject('conversation.view', () => ctx.slots.register({
         name: 'conversation.view',
         id: 'agent-persona',
         order: 30,
@@ -2064,21 +2334,57 @@ const since = (timestamp) => {
         inject: () => ({ api: capturedApi }),
       }, PersonaView))
 
+      // The sidebar is adapted through the sidebar plugin's own service (dsh-better-sidebar):
+      // it owns the tab list, and a registered tab type with a guide entry is what appears
+      // there. No footer button, and nothing happens when the plugin is absent.
+      if (prefs.showSidebar) ctx.inject(['sidebarRightTabs'], (own) => {
+        sidebarAvailable = true
+        const tabs = own?.sidebarRightTabs
+        if (tabs === undefined || typeof tabs.register !== 'function') return
+        tabs.register({
+          id: 'agent-persona',
+          kind: 'agent-persona',
+          title: () => 'Agent 人设',
+          guide: [{
+            order: 30,
+            title: () => 'Agent 人设',
+            description: () => '这条会话的人设、实际发送的提示词，以及全部人设的管理',
+            icon: IconUserOutline16,
+          }],
+        })
+      })
+
+      if (prefs.showSidebar) ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+        name: 'sidebar.right.pane.tab',
+        key: 'agent-persona',
+        inject: () => ({ api: capturedApi }),
+      }, (props) => h(PersonaView, { ...props, host: 'sidebar' })))
+
+      if (prefs.showSidebar) ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
+        name: 'sidebar.right.pane.tab.title',
+        key: 'agent-persona',
+      }, () => 'Agent 人设'))
+
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
         id: NS,
         order: 22,
-        label: () => 'Agent人设',
+        label: () => 'Agent 人设',
         inject: () => ({ api: capturedApi }),
       }, WorkspacePersonaSection))
 
-      // The host methods are reached over Connection RPC; the instance is created here
-      // and handed to the already-registered pages.
-      capturedApi = makeApi(ctx)
+      // Mount the Remote namespace, then expose it to the already-registered pages.
+      void (async () => {
+        try {
+          await ctx.remote.$mount(TYPERT_REMOTE)
+          capturedApi = ctx.get('remote.agentPersona')
+        } catch (error) {
+          ctx.logger?.warn?.(`[${NS}] could not mount remote namespace: ${String(error)}`)
+        }
+      })()
     }
 
     module.exports = { name: NS, inject, apply }
     return module.exports
   },
 })
-

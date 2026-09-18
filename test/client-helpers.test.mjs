@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../src/client.ts', import.meta.url), 'utf8')
 
 // ── the renderer and its required props
 assert.ok(source.includes('MarkdownText,'), 'the kit renderer available to plugins is imported')

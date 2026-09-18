@@ -1,3 +1,4 @@
+// @ts-nocheck —— 迁移第一步：先建立构建与产物形状，类型逐步补全
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 /**
  * agent-persona — host half (v2: many personas, each with its own scope).
