@@ -473,7 +473,7 @@ assert.equal((await sessionPromptFrom(viewCtx, 'pv1', [])).persona, null, 'a ses
 // ── every name the remote namespace exposes must be implemented by the service, or its
 // route answers 500; a name missing from the namespace answers 404 (both were hit)
 const hostSource = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-const exposed = (hostSource.match(/export const RPC_ENDPOINTS = \[([^\]]*)\]/) ?? [])[1]
+const exposed = (hostSource.match(/markRemote\(WorkspacePersonaService, \[([^\]]*)\]/) ?? [])[1]
 const exposedNames = exposed === undefined ? [] : exposed.split(',').map((name) => name.trim().replace(/['"]/g, '')).filter(Boolean)
 const serviceStart = hostSource.indexOf('class WorkspacePersonaService')
 const serviceBrace = hostSource.indexOf('{', serviceStart)
@@ -491,7 +491,6 @@ const unimplemented = exposedNames.filter((name) => !new RegExp(`\\n\\s+async ${
 assert.deepEqual(unimplemented, [], `exposed methods with no service implementation: ${unimplemented.join(', ')}`)
 assert.ok(exposedNames.length >= 10, `and the audit found the exposed methods (${exposedNames.length})`)
 assert.ok(exposedNames.includes('sessionPrompt'), 'the persona view endpoint is exposed')
-assert.ok(hostSource.includes('connection.rpc.handle'), 'and the channel is registered on the connection service')
 
 console.log(JSON.stringify({
   ok: true,
