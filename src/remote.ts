@@ -1,0 +1,97 @@
+// 该文件由 scripts/generate-remote.mjs 生成，请勿手改（改 src/endpoints.ts 后重新生成）。
+export const RPC_CHANNEL = "/agent-persona"
+
+/** What the browser half mounts: ctx.remote.$mount(RPC_REMOTE). */
+export const RPC_REMOTE = {
+  package: "dsh-agent-persona",
+  descriptors: [
+    {
+      service: "dsh-agent-persona",
+      namespace: "dsh-agent-persona",
+      method: "listPersonas",
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'input', wire: 'input', source: 'json', codec: { parse: (value) => value } }],
+      result: { mode: 'strict', typeSymbol: "dsh-agent-persona#View", schema: { parse: (value) => value } },
+    },
+    {
+      service: "dsh-agent-persona",
+      namespace: "dsh-agent-persona",
+      method: "savePersona",
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'input', wire: 'input', source: 'json', codec: { parse: (value) => value } }],
+      result: { mode: 'strict', typeSymbol: "dsh-agent-persona#View", schema: { parse: (value) => value } },
+    },
+    {
+      service: "dsh-agent-persona",
+      namespace: "dsh-agent-persona",
+      method: "deletePersona",
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'input', wire: 'input', source: 'json', codec: { parse: (value) => value } }],
+      result: { mode: 'strict', typeSymbol: "dsh-agent-persona#View", schema: { parse: (value) => value } },
+    },
+    {
+      service: "dsh-agent-persona",
+      namespace: "dsh-agent-persona",
+      method: "movePersona",
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'input', wire: 'input', source: 'json', codec: { parse: (value) => value } }],
+      result: { mode: 'strict', typeSymbol: "dsh-agent-persona#View", schema: { parse: (value) => value } },
+    },
+    {
+      service: "dsh-agent-persona",
+      namespace: "dsh-agent-persona",
+      method: "duplicatePersona",
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'input', wire: 'input', source: 'json', codec: { parse: (value) => value } }],
+      result: { mode: 'strict', typeSymbol: "dsh-agent-persona#View", schema: { parse: (value) => value } },
+    },
+    {
+      service: "dsh-agent-persona",
+      namespace: "dsh-agent-persona",
+      method: "reorderPersona",
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'input', wire: 'input', source: 'json', codec: { parse: (value) => value } }],
+      result: { mode: 'strict', typeSymbol: "dsh-agent-persona#View", schema: { parse: (value) => value } },
+    },
+    {
+      service: "dsh-agent-persona",
+      namespace: "dsh-agent-persona",
+      method: "listTargets",
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'input', wire: 'input', source: 'json', codec: { parse: (value) => value } }],
+      result: { mode: 'strict', typeSymbol: "dsh-agent-persona#View", schema: { parse: (value) => value } },
+    },
+    {
+      service: "dsh-agent-persona",
+      namespace: "dsh-agent-persona",
+      method: "sessionHistory",
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'input', wire: 'input', source: 'json', codec: { parse: (value) => value } }],
+      result: { mode: 'strict', typeSymbol: "dsh-agent-persona#View", schema: { parse: (value) => value } },
+    },
+    {
+      service: "dsh-agent-persona",
+      namespace: "dsh-agent-persona",
+      method: "sessionPrompt",
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'input', wire: 'input', source: 'json', codec: { parse: (value) => value } }],
+      result: { mode: 'strict', typeSymbol: "dsh-agent-persona#View", schema: { parse: (value) => value } },
+    },
+    {
+      service: "dsh-agent-persona",
+      namespace: "dsh-agent-persona",
+      method: "tunePersona",
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'input', wire: 'input', source: 'json', codec: { parse: (value) => value } }],
+      result: { mode: 'strict', typeSymbol: "dsh-agent-persona#View", schema: { parse: (value) => value } },
+    },
+    {
+      service: "dsh-agent-persona",
+      namespace: "dsh-agent-persona",
+      method: "listModels",
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'input', wire: 'input', source: 'json', codec: { parse: (value) => value } }],
+      result: { mode: 'strict', typeSymbol: "dsh-agent-persona#View", schema: { parse: (value) => value } },
+    },
+  ],
+}

@@ -3,7 +3,10 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022", "DOM"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
     "strict": false,
     "declaration": true,
     "sourceMap": false,
@@ -12,5 +15,10 @@
     "skipLibCheck": true,
     "allowJs": false
   },
-  "include": ["src/index.ts"]
+  "include": [
+    "src/index.ts",
+    "src/endpoints.ts",
+    "src/remote.ts",
+    "src/typert.ts"
+  ]
 }

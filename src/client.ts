@@ -1,4 +1,5 @@
 // @ts-nocheck —— 迁移第一步：先建立构建与产物形状，类型逐步补全
+import { RPC_REMOTE } from './remote.js'
 /**
  * workspace-persona — client half (v2: many personas, each with its own scope).
  *
@@ -86,53 +87,8 @@ window.__ModuleLoader__.load({
     ]
     // ── Remote descriptor (strict codecs, hand-written validators) ──────────
 
-    const codec = (typeSymbol, parse) => ({
-      mode: 'strict',
-      typeSymbol: `dsh-agent-persona#${typeSymbol}`,
-      schema: { parse },
-    })
-    const passthrough = (value) => value
-    const asInput = (value) => {
-      if (value === undefined || value === null) return {}
-      if (typeof value !== 'object' || Array.isArray(value)) throw new Error('input must be an object')
-      return value
-    }
-    const method = (name, parameters) => ({
-      id: `dsh-agent-persona#agentPersona/${name}`,
-      service: 'agentPersona',
-      namespace: 'agentPersona',
-      method: name,
-      invocation: { kind: 'direct' },
-      parameters,
-      result: { mode: 'strict', typeSymbol: 'dsh-agent-persona#View', schema: { parse: passthrough } },
-    })
-    /** The Connection RPC channel this half calls; see the DSH plugin standard. */
-    const RPC_CHANNEL = '/agent-persona'
+    /** Mount the generated artifact rather than a hand-written manifest. */
 
-    /**
-     * Every host method, reached over Connection RPC: a channel string, an endpoint name
-     * and a JSON payload. No typert markers, no hand-written invocations manifest — those
-     * depend on both halves loading the same module instance and break for an npm-installed
-     * plugin. The envelope is the same shape the gateway used: `{ok, value}` / `{ok, error}`.
-     */
-    const withInput = () => [{ name: 'input', wire: 'input', source: 'json', codec: codec('Input', asInput) }]
-
-    const TYPERT_REMOTE = {
-      package: 'dsh-agent-persona',
-      descriptors: [
-        method('listPersonas', []),
-        method('savePersona', withInput()),
-        method('deletePersona', withInput()),
-        method('movePersona', withInput()),
-        method('duplicatePersona', withInput()),
-        method('reorderPersona', withInput()),
-        method('listTargets', []),
-        method('sessionHistory', withInput()),
-        method('sessionPrompt', withInput()),
-        method('tunePersona', withInput()),
-        method('listModels', []),
-      ],
-    }
     // ── styles ──────────────────────────────────────────────────────────────
 
     /** Interface preferences: where the persona page shows up, and whether edits save themselves. */
@@ -160,6 +116,7 @@ const readPrefs = () => {
       }
       return next
     }
+
 
     const CSS = `
 .wsp-root, .wsp-view, .wsp-chat-modal, [data-plugin="dsh-agent-persona"], [data-plugin="agent-persona"] {

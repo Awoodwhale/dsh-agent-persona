@@ -13,7 +13,15 @@
       "default": "./lib/client.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./remote": {
+      "types": "./lib/remote.d.ts",
+      "default": "./lib/remote.js"
+    },
+    "./typert": {
+      "types": "./lib/typert.d.ts",
+      "default": "./lib/typert.js"
+    }
   },
   "files": [
     "lib",
@@ -51,10 +59,11 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && esbuild src/client.ts --bundle --format=iife --platform=browser --target=es2020 --outfile=lib/client.js --log-level=warning",
+    "build": "npm run generate:remote && tsc -p tsconfig.json && esbuild src/client.ts --bundle --format=iife --platform=browser --target=es2020 --outfile=lib/client.js --log-level=warning",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json",
-    "test": "node test/personas.test.mjs && node test/client-helpers.test.mjs",
-    "prepare": "npm run build"
+    "test": "node test/personas.test.mjs && node test/client-helpers.test.mjs && node scripts/generate-remote.mjs --check",
+    "prepare": "npm run build",
+    "generate:remote": "node scripts/generate-remote.mjs"
   },
   "dsh": {
     "bundle": {

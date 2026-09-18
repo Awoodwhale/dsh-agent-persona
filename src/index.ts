@@ -49,6 +49,7 @@ import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
  */
 
 import Schema from '@deepseek-ai/schemastery'
+import { RPC_ENDPOINTS } from './endpoints.js'
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -1030,18 +1031,9 @@ const markRemote = (target, methods) => {
   }
 }
 
-markRemote(WorkspacePersonaService, [
-  'listPersonas', 'savePersona', 'deletePersona', 'movePersona', 'duplicatePersona', 'reorderPersona', 'listTargets', 'sessionHistory', 'sessionPrompt', 'tunePersona', 'listModels',
-])
+markRemote(WorkspacePersonaService, [...RPC_ENDPOINTS])
 
 /** The Connection RPC channel the browser half calls into (see the plugin standard). */
-export const RPC_CHANNEL = '/agent-persona'
-
-/** RPC endpoints, in the wire envelope the connection service expects. */
-export const RPC_ENDPOINTS = [
-  'listPersonas', 'savePersona', 'deletePersona', 'movePersona', 'duplicatePersona',
-  'reorderPersona', 'listTargets', 'sessionHistory', 'sessionPrompt', 'tunePersona', 'listModels',
-]
 
 // ─────────────────────────────────────────────────────────── plugin
 

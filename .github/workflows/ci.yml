@@ -14,6 +14,10 @@ jobs:
         with:
           node-version: 22
       # The plugin has no runtime dependencies: the host provides every
-      # @deepseek-ai/* service it uses, so the suite only needs Node.
-      - run: npm run check
+      # @deepseek-ai/* service it uses. The build needs its devDependencies
+      # (typescript, esbuild), and npm test also verifies that the generated
+      # remote artifacts match src/endpoints.ts.
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
       - run: npm test
