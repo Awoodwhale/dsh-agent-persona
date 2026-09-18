@@ -312,7 +312,7 @@ assert.equal(clippedBlocks.includes('第二段'), false, 'the cut lands on a blo
 assert.ok(clippedBlocks.startsWith('第一段'), 'and the complete blocks before it survive')
 assert.equal((clippedLong.match(/^\u0060\u0060\u0060/gm) ?? []).length % 2, 0, 'no unclosed fence is left behind')
 assert.equal((clippedLong.match(/\u0060/g) ?? []).length % 2, 0, 'and no unclosed inline code span either')
-assert.ok(clippedLong.includes('已截断'), 'and the reader is told it was cut')
+assert.equal(clippedLong.includes('已截断'), false, 'the notice is the interface\'s job, not text glued to the message')
 assert.equal((clipMarkdown('short', 200)), 'short', 'a short message is returned untouched')
 
 // one huge message cannot blow up the payload
@@ -320,7 +320,7 @@ const longCtx = { get: (name) => (name === 'sessionPersistence' ? { open: async 
 const clipped = await collectSessionHistory(longCtx, 's3', { maxChars: 200 })
 assert.equal(clipped.messages[0].truncated, true)
 assert.ok(clipped.messages[0].text.startsWith('x'.repeat(200)), 'the head is kept up to the cap')
-assert.ok(clipped.messages[0].text.includes('已截断'), 'and a truncation note is appended')
+assert.equal(clipped.messages[0].text.includes('已截断'), false, 'while the note itself is left to the interface')
 
 const none = await collectSessionHistory({ get: () => undefined }, 's4', {})
 assert.equal(none.unavailable, true, 'no reader at all is reported as unavailable')
