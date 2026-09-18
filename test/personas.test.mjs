@@ -56,6 +56,26 @@ assert.equal(resolvePersona([P({ enabled: false, targets: [] })], { cwd: WS }).r
 assert.equal(resolvePersona([], { cwd: WS }).reason, 'none')
 assert.equal(resolvePersona([personas[1], personas[0], personas[2], personas[3]], { cwd: WS, sessionId: 'im-bot-x' }).persona.id, 'specific', 'a session rule beats a workspace rule regardless of order')
 
+// replace takes over the harness identity line as well as the deployment persona
+const identityAssembly = () => ({
+  sections: [
+    { name: 'harness:identity', text: 'You are an AI agent powered by DeepSeek Harness.\n' },
+    { name: 'deployment:persona-prefix', text: 'You are a coding agent powered by the DeepSeek model.' },
+    { name: 'agent-persona', text: 'MY PERSONA' },
+    { name: 'tools:guidance', text: 'Use the read tool.' },
+  ],
+})
+const replaced = applyPersonaMode(identityAssembly(), { mode: 'replace', deploymentPrefix: 'You are a coding agent powered by the DeepSeek model.' })
+assert.equal(replaced.sections[0].text, '', 'replace clears the harness identity line')
+assert.equal(replaced.sections[1].text, '', 'and the deployment persona prefix')
+assert.equal(replaced.sections[2].text, 'MY PERSONA', 'leaving the persona itself alone')
+assert.equal(replaced.sections[3].text, 'Use the read tool.', 'and the tool guidance untouched')
+const appended = applyPersonaMode(identityAssembly(), { mode: 'append', deploymentPrefix: 'x' })
+assert.equal(appended.sections[0].text.startsWith('You are an AI agent'), true, 'append keeps the harness identity')
+assert.equal(appended.sections[1].text.startsWith('You are a coding agent'), true, 'and the deployment persona')
+const foreignPreset = applyPersonaMode({ sections: [{ name: 'deployment:persona-prefix', text: 'A preset wrote this.' }] }, { mode: 'replace', deploymentPrefix: 'the deployment text' })
+assert.equal(foreignPreset.sections[0].text, 'A preset wrote this.', 'a preset\'s own persona is never removed')
+
 // ── specificity decides, list order only breaks ties
 assert.equal(targetSpecificity({ kind: 'sessionId', match: 'exact' }), 8)
 assert.equal(targetSpecificity({ kind: 'sessionId', match: 'prefix' }), 7)
