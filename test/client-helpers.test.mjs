@@ -105,4 +105,15 @@ const leaked = stateKeys.filter((key) => new RegExp(`(?<![.A-Za-z0-9_$])${key}(?
 assert.deepEqual(leaked, [], `state fields used in the view render without destructuring: ${leaked.join(', ')}`)
 assert.ok(stateKeys.length >= 8, `and the audit found the state fields (${stateKeys.length})`)
 
+
+// ── a tab switch must not depend on anything asynchronous: the View Transitions API froze the
+// page (its callback promise has to settle in time while React renders), and a two-phase state
+// machine with timers can strand the panel at opacity 0. Both are out, and stay out.
+for (const risky of ['startViewTransition', 'view-transition', 'tabFading', 'tabEntering', 'wsp-panel-out']) {
+  assert.equal(source.includes(risky), false, `${risky} must not come back: a switch has to be a plain state change`)
+}
+const tabClick = source.slice(source.indexOf("onClick: () => {\n            if (item.id === tab) return"), source.indexOf('}, item.label)))'))
+assert.ok(tabClick.includes('this.setState({ tab: item.id })'), 'the switch is one synchronous state change')
+assert.equal(/setTimeout|requestAnimationFrame/.test(tabClick), false, 'with no timers or frames involved')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
