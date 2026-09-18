@@ -1,4 +1,4 @@
-import { RPC_REMOTE } from './remote.js'
+import { TYPERT } from './typert.js'
 /**
  * workspace-persona — client half (v2: many personas, each with its own scope).
  *
@@ -2350,7 +2350,7 @@ const since = (timestamp) => {
       // Mount the Remote namespace, then expose it to the already-registered pages.
       void (async () => {
         try {
-          await ctx.remote.$mount(RPC_REMOTE)
+          await ctx.remote.$mount(TYPERT)
           capturedApi = ctx.get('remote.agentPersona')
         } catch (error) {
           ctx.logger?.warn?.(`[${NS}] could not mount remote namespace: ${String(error)}`)

@@ -180,6 +180,9 @@ assert.ok(manifest.includes('from "zod"') || manifest.includes("from 'zod'"), 'w
 assert.ok(manifest.includes('name: "listPersonas"'), 'and a member entry per endpoint')
 const remote = readFileSync(new URL('../src/remote.ts', import.meta.url), 'utf8')
 assert.ok(remote.includes('export const RPC_REMOTE'), 'the remote artifact exports the object the client mounts')
-assert.ok(source.includes("from './remote.js'"), 'and the client mounts that artifact rather than a hand-written copy')
+assert.ok(source.includes("from './typert.js'"), 'and the client mounts the generated contribution, not a hand-written copy')
+assert.ok(source.includes('$mount(TYPERT)'), 'passing the manifest the remote service mounts')
+assert.ok(manifest.includes('model:'), 'which is the same object the loader validates')
+assert.equal(source.includes('$mount(RPC_REMOTE)'), false, 'never an invented { package, descriptors } object')
 
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
