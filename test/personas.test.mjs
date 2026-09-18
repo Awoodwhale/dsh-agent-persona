@@ -476,7 +476,17 @@ const hostSource = readFileSync(new URL('../lib/index.js', import.meta.url), 'ut
 const exposed = (hostSource.match(/export const RPC_ENDPOINTS = \[([^\]]*)\]/) ?? [])[1]
 const exposedNames = exposed === undefined ? [] : exposed.split(',').map((name) => name.trim().replace(/['"]/g, '')).filter(Boolean)
 const serviceStart = hostSource.indexOf('class WorkspacePersonaService')
-const serviceBody = hostSource.slice(serviceStart, hostSource.indexOf('export function apply', serviceStart))
+const serviceBrace = hostSource.indexOf('{', serviceStart)
+let serviceDepth = 0
+let serviceEnd = serviceBrace
+for (let i = serviceBrace; i < hostSource.length; i += 1) {
+  if (hostSource[i] === '{') serviceDepth += 1
+  else if (hostSource[i] === '}') {
+    serviceDepth -= 1
+    if (serviceDepth === 0) { serviceEnd = i + 1; break }
+  }
+}
+const serviceBody = hostSource.slice(serviceStart, serviceEnd)
 const unimplemented = exposedNames.filter((name) => !new RegExp(`\\n\\s+async ${name}\\(`).test(serviceBody))
 assert.deepEqual(unimplemented, [], `exposed methods with no service implementation: ${unimplemented.join(', ')}`)
 assert.ok(exposedNames.length >= 10, `and the audit found the exposed methods (${exposedNames.length})`)
