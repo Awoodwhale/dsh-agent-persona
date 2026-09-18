@@ -114,10 +114,7 @@ window.__ModuleLoader__.load({
      * plugin. The envelope is the same shape the gateway used: `{ok, value}` / `{ok, error}`.
      */
     const makeApi = (ctx) => {
-      // Read through ctx.get(): the property form (`ctx.connection`) is guarded by cordis
-      // and throws "cannot get property \"connection\" without inject" outside an injected
-      // scope, which is exactly how this broke the whole plugin on load.
-      const connection = typeof ctx.get === 'function' ? ctx.get('connection') : undefined
+      const connection = ctx.connection ?? ctx.get?.('connection')
       const rpc = connection?.rpc
       const call = (endpoint) => async (payload) => {
         if (rpc === undefined || typeof rpc.call !== 'function') {
@@ -2052,7 +2049,7 @@ const since = (timestamp) => {
 
     // ── plugin ──────────────────────────────────────────────────────────────
 
-    const inject = ['slots', 'remote', 'connection']
+    const inject = ['slots', 'remote']
 
     function apply(ctx) {
       const style = injectStyles()
@@ -2084,3 +2081,4 @@ const since = (timestamp) => {
     return module.exports
   },
 })
+
