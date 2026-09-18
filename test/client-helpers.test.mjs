@@ -16,6 +16,14 @@ for (const workaround of ['MessageText,', 'splitMarkdown', 'SafeChunk']) {
 }
 assert.ok(source.includes('getDerivedStateFromError'), 'while a failed message still degrades to plain text instead of killing the page')
 
+// re-reading the conversation must not clear the dialog (that unmounts it: a flash)
+const head = source.slice(source.indexOf('async readHeadHistory()'), source.indexOf('async readTailHistory()'))
+assert.equal(head.includes('history: undefined'), false, 'readHeadHistory must not clear the dialog while it re-reads')
+assert.ok(head.includes("mode: 'head'"), 'and it replaces the contents in place')
+// a clipped fragment that cannot render fetches its full text instead of staying broken
+assert.ok(source.includes('onDegrade:'), 'a degraded bubble asks for the full message')
+assert.ok(source.includes('degraded: message.expanded === true'), 'and asks only once')
+
 // every component used in the file must actually be imported or defined here: an
 // undefined element is React error #130, and that is exactly how the conflict
 // banner crashed the page for a user whose personas overlapped.
