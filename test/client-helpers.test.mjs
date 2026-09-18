@@ -145,4 +145,10 @@ assert.ok(source.includes('clearTimeout(this.autosaveTimer)\n          this.auto
 assert.ok(source.includes('const openDraft = this.state.openId === persona.id'), 'the switch syncs the open draft')
 assert.ok(source.includes('...(openDraft === undefined ? {} : { draft: openDraft })'), 'and hands it to the same state update as the view')
 
+
+// ── the default-persona switch has to take part in the change tracking and in the save payload,
+// otherwise flipping it looks inert: no dirty state, no autosave, nothing written
+assert.ok(source.includes('f: value.fallback === true'), 'the draft fingerprint compares the flag')
+assert.ok((source.match(/fallback: draft\.fallback === true/g) ?? []).length >= 2, 'and both editors send it')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
