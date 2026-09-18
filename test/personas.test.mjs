@@ -42,7 +42,7 @@ assert.equal(matchTarget(T('sessionId', 'regex', '(['), { sessionId: 'x' }), fal
 assert.equal(matchTarget(T('workspace', 'exact', WS), {}), false, 'a missing subject field never matches')
 assert.equal(matchTarget({ kind: 'workspace', match: 'nonsense', value: WS }, { cwd: WS }), false)
 
-// ── resolvePersona: order is priority, rows are OR-ed, catch-alls, disabled
+// ── resolvePersona: specificity decides, rows are OR-ed, no-target personas are inert
 const personas = [
   P({ id: 'specific', name: 'specific', targets: [T('sessionId', 'prefix', 'im-bot-')] }),
   P({ id: 'ws', name: 'ws', targets: [T('workspace', 'exact', WS), T('workspace', 'exact', OTHER)] }),
@@ -51,8 +51,8 @@ const personas = [
 ]
 assert.equal(resolvePersona(personas, { cwd: WS, sessionId: 'im-bot-x' }).persona.id, 'specific', 'the first match wins')
 assert.equal(resolvePersona(personas, { cwd: OTHER, sessionId: 'session-1' }).persona.id, 'ws', 'the second row of a persona also claims')
-assert.equal(resolvePersona(personas, { cwd: '/tmp/elsewhere', sessionId: 'session-2' }).persona.id, 'fallback', 'a catch-all takes the rest')
-assert.equal(resolvePersona(personas, {}).persona.id, 'fallback', 'an agent-less assembly also falls to the catch-all')
+assert.equal(resolvePersona(personas, { cwd: '/tmp/elsewhere', sessionId: 'session-2' }).persona, undefined, 'a persona with no targets applies nowhere')
+assert.equal(resolvePersona(personas, {}).persona, undefined, 'nor to an agent-less assembly: the harness prompt stands')
 assert.equal(resolvePersona([P({ enabled: false, targets: [] })], { cwd: WS }).reason, 'none', 'disabled personas are skipped')
 assert.equal(resolvePersona([], { cwd: WS }).reason, 'none')
 assert.equal(resolvePersona([personas[1], personas[0], personas[2], personas[3]], { cwd: WS, sessionId: 'im-bot-x' }).persona.id, 'specific', 'a session rule beats a workspace rule regardless of order')
@@ -100,8 +100,8 @@ assert.equal(resolvePersona([P({ id: 'second', targets: [T('workspace', 'exact',
 // ── personaTextFor: an empty winning text means "no persona here"
 const silencing = [P({ id: 'quiet', text: '', targets: [T('workspace', 'exact', WS)] }), P({ id: 'fallback', text: 'FALLBACK', targets: [] })]
 assert.equal(personaTextFor(silencing, { session: { header: { id: 's1', cwd: WS } } }), '', 'an empty winner silences the catch-all')
-assert.equal(personaTextFor(silencing, { session: { header: { id: 's2', cwd: OTHER } } }), 'FALLBACK')
-const withVars = [P({ text: '模型 {{model}} 未知 {{nope}} 目录 {{cwd}}', targets: [] })]
+assert.equal(personaTextFor(silencing, { session: { header: { id: 's2', cwd: OTHER } } }), '', 'a persona with no targets covers nothing, so the harness prompt stands')
+const withVars = [P({ text: '模型 {{model}} 未知 {{nope}} 目录 {{cwd}}', targets: [T('workspace', 'exact', WS)] })]
 const rendered = personaTextFor(withVars, { session: { header: { id: 's3', cwd: WS } } })
 assert.ok(rendered.includes('{{model}}') && rendered.includes('{{cwd}}'), 'registered variables survive')
 assert.ok(!rendered.includes('{{nope}}') && rendered.includes('nope'), 'an unknown variable is de-braced')
@@ -395,8 +395,8 @@ assert.equal(sections[0].order, 1, 'sits right above the persona slot')
 const section = sections[0]
 assert.equal(section.text({ agent: { session: { header: { id: 'im-bot-1a2b-g3', cwd: '/tmp/x' } } } }), 'IM {{model}}')
 assert.equal(section.text({ agent: { session: { header: { id: 'session-9', cwd: OTHER } } } }), '', 'an empty persona silences')
-assert.equal(section.text({ agent: { session: { header: { id: 'session-9', cwd: '/tmp/elsewhere' } } } }), 'FALLBACK')
-assert.equal(section.text({}), 'FALLBACK', 'a catch-all also covers an assembly with no agent')
+assert.equal(section.text({ agent: { session: { header: { id: 'session-9', cwd: '/tmp/elsewhere' } } } }), '', 'a persona with no targets injects nothing')
+assert.equal(section.text({}), '', 'and an agent-less assembly gets the harness prompt')
 
 const beat = JSON.parse(readFileSync(heartbeatPath, 'utf8'))
 assert.equal(beat.storePath, storePath, 'all files live in the plugin directory')
@@ -406,7 +406,7 @@ assert.equal(beat.sectionOrder, 1)
 assert.ok(/lib\/index\.js$/.test(beat.loadedModule), 'the heartbeat names the module it loaded')
 
 // an edit on disk applies to the next assembly (stamp-based re-read)
-writeFileSync(storePath, JSON.stringify({ version: 1, personas: [{ id: 'a', name: 'im-bot', enabled: true, text: 'EDITED', targets: [] }] }))
+writeFileSync(storePath, JSON.stringify({ version: 1, personas: [{ id: 'a', name: 'im-bot', enabled: true, text: 'EDITED', targets: [T('workspace', 'exact', '/tmp/x')] }] }))
 const edited = new Date(Date.now() + 2000)
 utimesSync(storePath, edited, edited)
 assert.equal(section.text({ agent: { session: { header: { id: 'x', cwd: '/tmp/x' } } } }), 'EDITED')

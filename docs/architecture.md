@@ -53,7 +53,7 @@
 - `kind`：`workspace`（比对 `agent.session.header.cwd`）或 `sessionId`（比对会话 id）。
 - `match`：`exact` / `prefix` / `regex` / `contains`；只有 `exact` 会做路径归一化（`resolve()` 两侧），
   其余三种比对**原样字符串**。空值、非法正则、缺失对应字段 → 该规则不命中（不抛错）。
-- `targets: []` = 兜底人设。
+- `targets: []` = 不生效（草稿态）：一个位置都没加的人设不参与注入，会话继续使用 DSH 自带的 system prompt。
 
 ## 3. 一次组装里发生了什么
 
@@ -80,8 +80,8 @@
 1. `enabled === false` → 跳过；
 2. 每条命中的规则按**具体度**打分（`sessionId` > `workspace`，`exact` > `prefix` > `contains`/`regex`，见 `targetSpecificity`），
    取各人设的**最高分**比较，分高者中选；同分才按数组顺序取靠前的；
-3. `targets` 为空 → 兜底，中选（应放在列表底部）；
-4. 中选者 `text.trim() === ''` → 返回空串（显式静默，用来给兜底开例外）；
+3. `targets` 为空 → 跳过（草稿态，不参与注入）；
+4. 中选者 `text.trim() === ''` → 返回空串（显式静默：命中位置但正文为空，等于在该位置不要人设）；
 5. 全都不中 → 空串 → 原生 system prompt。
 
 **为什么优先级高于 `AGENTS.md`**：`AGENTS.md` 由 `dsh-agent-instructions` 变成一条 **user 角色**的持久消息，
