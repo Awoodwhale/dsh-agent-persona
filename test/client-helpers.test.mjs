@@ -139,4 +139,10 @@ assert.ok(source.includes('patchDraft(patch, options = {})'), 'the draft funnel 
 assert.equal((source.match(/\{ autosave: false \}/g) ?? []).length, 3, 'the three rule-row edits opt out')
 assert.ok(source.includes('clearTimeout(this.autosaveTimer)\n          this.autosaveTimer = undefined'), 'and a queued autosave is dropped when one of them happens')
 
+
+// ── the list switch writes to the store, so an open card's draft must follow it: otherwise the card
+// reads as 未保存 and saving puts the old value back, silently undoing the switch
+assert.ok(source.includes('const openDraft = this.state.openId === persona.id'), 'the switch syncs the open draft')
+assert.ok(source.includes('...(openDraft === undefined ? {} : { draft: openDraft })'), 'and hands it to the same state update as the view')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
