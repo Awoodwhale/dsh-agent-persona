@@ -464,17 +464,17 @@ assert.equal(viewPayload.persona.targets.length, 1, 'and its scope rules, so sav
 assert.equal(viewPayload.prompt, 'LAST PROMPT', 'plus the prompt the session actually sent')
 assert.equal((await sessionPromptFrom(viewCtx, 'pv1', [])).persona, null, 'a session nothing matches reports no persona')
 
-// ── every runtime method must be exposed on the remote namespace, or its route 404s
+// ── every name the remote namespace exposes must be implemented by the service, or its
+// route answers 500; a name missing from the namespace answers 404 (both were hit)
 const hostSource = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-const runtimeBlock = hostSource.slice(hostSource.indexOf('const runtime = {'), hostSource.indexOf('markRemote('))
-const runtimeMethods = [...runtimeBlock.matchAll(/\n\s+(?:async )?([a-zA-Z]+)[(,]/g)]
-  .map((match) => match[1])
-  .filter((name) => !['if', 'for', 'while', 'return', 'const', 'catch', 'await'].includes(name))
-const exposed = (hostSource.match(/markRemote\([^\[]*\[([^\]]*)\]/) ?? [])[1]
+const exposed = (hostSource.match(/markRemote\(WorkspacePersonaService, \[([^\]]*)\]/) ?? [])[1]
 const exposedNames = exposed === undefined ? [] : exposed.split(',').map((name) => name.trim().replace(/['"]/g, '')).filter(Boolean)
-const unexposed = runtimeMethods.filter((name) => !exposedNames.includes(name))
-assert.deepEqual(unexposed, [], `runtime methods missing from the remote namespace: ${unexposed.join(', ')}`)
-assert.ok(runtimeMethods.length >= 8, `and the audit found the runtime methods (${runtimeMethods.length})`)
+const serviceStart = hostSource.indexOf('class WorkspacePersonaService')
+const serviceBody = hostSource.slice(serviceStart, hostSource.indexOf('markRemote(', serviceStart))
+const unimplemented = exposedNames.filter((name) => !new RegExp(`\\n\\s+async ${name}\\(`).test(serviceBody))
+assert.deepEqual(unimplemented, [], `exposed methods with no service implementation: ${unimplemented.join(', ')}`)
+assert.ok(exposedNames.length >= 10, `and the audit found the exposed methods (${exposedNames.length})`)
+assert.ok(exposedNames.includes('sessionPrompt'), 'the persona view method is exposed')
 
 console.log(JSON.stringify({
   ok: true,
