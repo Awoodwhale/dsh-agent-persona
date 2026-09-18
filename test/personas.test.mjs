@@ -464,6 +464,16 @@ assert.equal(viewPayload.persona.targets.length, 1, 'and its scope rules, so sav
 assert.equal(viewPayload.prompt, 'LAST PROMPT', 'plus the prompt the session actually sent')
 assert.equal((await sessionPromptFrom(viewCtx, 'pv1', [])).persona, null, 'a session nothing matches reports no persona')
 
+// ── every runtime method must be exposed on the remote namespace, or its route 404s
+const hostSource = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+const runtimeBlock = hostSource.slice(hostSource.indexOf('const runtime = {'), hostSource.indexOf('markRemote('))
+const runtimeMethods = [...runtimeBlock.matchAll(/\n\s+async ([a-zA-Z]+)\(/g)].map((match) => match[1])
+const exposed = (hostSource.match(/markRemote\([^\[]*\[([^\]]*)\]/) ?? [])[1]
+const exposedNames = exposed === undefined ? [] : exposed.split(',').map((name) => name.trim().replace(/['"]/g, '')).filter(Boolean)
+const unexposed = runtimeMethods.filter((name) => !exposedNames.includes(name))
+assert.deepEqual(unexposed, [], `runtime methods missing from the remote namespace: ${unexposed.join(', ')}`)
+assert.ok(runtimeMethods.length >= 10, 'and the audit found the runtime methods')
+
 console.log(JSON.stringify({
   ok: true,
   checks: 134,
