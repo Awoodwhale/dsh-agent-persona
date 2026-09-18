@@ -49,6 +49,18 @@ const used = [...source.matchAll(/\bh\(([A-Z][A-Za-z0-9]*)/g)].map((match) => ma
 const unresolved = [...new Set(used)].filter((name) => !imported.has(name) && !defined.has(name))
 assert.deepEqual(unresolved, [], `these elements are used but never imported: ${unresolved.join(', ')}`)
 assert.ok(used.length > 20, 'and the audit actually looked at the render calls')
+// slot registrants are components too: they are passed as the second argument of
+// ctx.slots.register, where the h(...) audit above cannot see them. An undefined one is the
+// same React #130 as an undefined element.
+const registrants = []
+for (const match of source.matchAll(/slots\.register\(/g)) {
+  const tail = source.slice(match.index, match.index + 900)
+  const next = tail.match(/,\s*([A-Z][A-Za-z0-9_]*)\s*\)/)
+  if (next !== null) registrants.push(next[1])
+}
+const unresolvedRegistrants = [...new Set(registrants)].filter((name) => !defined.has(name) && !imported.has(name))
+assert.deepEqual(unresolvedRegistrants, [], `slot registrants that are never defined: ${unresolvedRegistrants.join(', ')}`)
+assert.ok(registrants.length >= 4, `and the audit found the slot registrants (${registrants.length})`)
 const iconsUsed = [...new Set([...source.matchAll(/\b(Icon[A-Za-z0-9]+)\b/g)].map((match) => match[1]))]
 const unresolvedIcons = iconsUsed.filter((name) => !imported.has(name) && !defined.has(name))
 assert.deepEqual(unresolvedIcons, [], `these icons are used but never imported: ${unresolvedIcons.join(', ')}`)
