@@ -69,7 +69,8 @@ assert.ok(iconsUsed.length > 8, 'and the icon audit saw the icons')
 // ── nothing inside the persona view's render may be used before it is declared:
 // moving the tab row into the header shipped a TDZ ReferenceError (the page rendered as an
 // empty scroll area) because `tabs` was still declared after `header`.
-const renderStart = source.indexOf("      render() {\n        const { data, draft, error, busy, loading, editing, copied, tab, promptView } = this.state")
+const personaClassAt = source.indexOf('class PersonaView')
+const renderStart = source.indexOf('render() {', personaClassAt)
 const renderEnd = source.indexOf("        return h('div', { className: 'wsp-view'", renderStart)
 const renderBody = renderStart === -1 || renderEnd === -1 ? '' : source.slice(renderStart, renderEnd)
 assert.ok(renderBody.length > 500, 'the persona view render body must be locatable')
@@ -92,5 +93,16 @@ assert.ok(source.includes("id: 'agent-persona',\n          kind: 'agent-persona'
 for (const gone of ['sidebar.footer.action', 'shell.overlay', 'PersonaFooterAction', 'PersonaOverlay']) {
   assert.equal(source.includes(gone), false, `${gone} must not come back: the sidebar owns its own entry points`)
 }
+
+
+// ── state read inside the view's render must come out of this.state first: panelClass used
+// tabFading without destructuring it, which threw a ReferenceError and emptied the whole tab.
+const stateAt = source.indexOf('this.state = {', personaClassAt)
+const stateKeys = [...source.slice(stateAt, source.indexOf('}', stateAt)).matchAll(/([a-zA-Z][a-zA-Z0-9]*)\s*:/g)].map((m) => m[1])
+const destructured = (renderBody.match(/const \{([^}]*)\} = this\.state/) ?? [])[1]
+const names = destructured === undefined ? [] : destructured.split(',').map((n) => n.trim())
+const leaked = stateKeys.filter((key) => new RegExp(`(?<![.A-Za-z0-9_$])${key}(?![A-Za-z0-9_$])`).test(renderBody.replace(/this\.state\.\w+/g, '')) && !names.includes(key))
+assert.deepEqual(leaked, [], `state fields used in the view render without destructuring: ${leaked.join(', ')}`)
+assert.ok(stateKeys.length >= 8, `and the audit found the state fields (${stateKeys.length})`)
 
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
