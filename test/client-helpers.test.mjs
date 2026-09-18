@@ -54,4 +54,20 @@ const unresolvedIcons = iconsUsed.filter((name) => !imported.has(name) && !defin
 assert.deepEqual(unresolvedIcons, [], `these icons are used but never imported: ${unresolvedIcons.join(', ')}`)
 assert.ok(iconsUsed.length > 8, 'and the icon audit saw the icons')
 
+// ── nothing inside the persona view's render may be used before it is declared:
+// moving the tab row into the header shipped a TDZ ReferenceError (the page rendered as an
+// empty scroll area) because `tabs` was still declared after `header`.
+const renderStart = source.indexOf("      render() {\n        const { data, draft, error, busy, loading, editing, copied, tab, promptView } = this.state")
+const renderEnd = source.indexOf("        return h('div', { className: 'wsp-view'", renderStart)
+const renderBody = renderStart === -1 || renderEnd === -1 ? '' : source.slice(renderStart, renderEnd)
+assert.ok(renderBody.length > 500, 'the persona view render body must be locatable')
+const declared = [...renderBody.matchAll(/\n\s{8}const ([A-Za-z_$][A-Za-z0-9_$]*) =/g)].map((m) => ({ name: m[1], at: m.index }))
+const misordered = []
+for (const item of declared) {
+  const use = renderBody.search(new RegExp(`(?<![A-Za-z0-9_$.])${item.name}(?![A-Za-z0-9_$])`))
+  if (use !== -1 && use < item.at) misordered.push(item.name)
+}
+assert.deepEqual(misordered, [], `used before declaration in the view render: ${misordered.join(', ')}`)
+assert.ok(declared.length > 3, 'and the check found the render locals')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
