@@ -116,4 +116,14 @@ const tabClick = source.slice(source.indexOf("onClick: () => {\n            if (
 assert.ok(tabClick.includes('this.setState({ tab: item.id })'), 'the switch is one synchronous state change')
 assert.equal(/setTimeout|requestAnimationFrame/.test(tabClick), false, 'with no timers or frames involved')
 
+
+// ── interface preferences: where the page shows up, and whether edits save themselves
+assert.ok(source.includes('const readPrefs = () =>'), 'preferences are read from storage')
+assert.ok(source.includes('dsh-agent-persona.prefs'), 'under a namespaced key')
+assert.ok(source.includes('if (prefs.showTab) ctx.slots.inject(\'conversation.view\''), 'the conversation tab is registered only when enabled')
+assert.equal((source.match(/if \(prefs\.showSidebar\)/g) ?? []).length, 3, 'and the three sidebar seats follow their own switch')
+assert.ok(source.includes('this.scheduleAutosave()'), 'a draft edit arms the autosave')
+assert.ok(source.includes("if (this.state.prefs?.autosave !== true) return"), 'which stays idle unless the preference is on')
+assert.ok(source.includes('clearTimeout(this.autosaveTimer)'), 'and its timer is cleared on unmount')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
