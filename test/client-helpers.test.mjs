@@ -22,6 +22,7 @@ assert.equal(head.includes('history: undefined'), false, 'readHeadHistory must n
 assert.ok(head.includes("mode: 'head'"), 'and it replaces the contents in place')
 // a clipped fragment that cannot render fetches its full text instead of staying broken
 assert.ok(source.includes('onDegrade:'), 'a degraded bubble asks for the full message')
+assert.ok(source.includes('wsp-warmup'), 'the syntax highlighter is warmed on a hidden node, not in the transcript')
 assert.ok(source.includes('degraded: message.expanded === true'), 'and asks only once')
 
 // every component used in the file must actually be imported or defined here: an
