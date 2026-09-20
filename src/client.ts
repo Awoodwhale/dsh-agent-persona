@@ -108,6 +108,12 @@ window.__ModuleLoader__.load({
  * inject below only fires when that service exists, so the switch for it appears only then.
  */
 let sidebarAvailable = false
+/**
+ * Whether the sidebar plugin is there. Resolved live (not once at load) so the switch reflects reality
+ * whatever order the two plugins happen to load in: no sidebar plugin means there is no sidebar to
+ * register into, so the switch must not appear at all.
+ */
+let sidebarProbe = () => undefined
 /** Set once the sidebar tab service exists; toggling the preference calls it to add or drop the module. */
 let syncSidebarModule = () => {}
 
@@ -1061,7 +1067,9 @@ const since = (timestamp) => {
         return h('div', { className: 'wsp-prefs-row', 'data-plugin': NS }, [
           h('div', { className: 'wsp-prefs-row-head', key: 'h' }, [
             h('span', { className: 'wsp-prefs-row-title', key: 't' }, 'Agent 人设'),
-            h('span', { className: 'wsp-prefs-row-note', key: 'n' }, '注册后，dsh-better-sidebar 的「侧边卡片 → 侧边栏内容」里会多出 Agent 人设；注销即移除（立即生效）'),
+            sidebarProbe() === undefined
+              ? null
+              : h('span', { className: 'wsp-prefs-row-note', key: 'n' }, '注册后，dsh-better-sidebar 的「侧边卡片 → 侧边栏内容」里会多出 Agent 人设；注销即移除（立即生效）'),
           ]),
           h('div', { className: 'wsp-prefs', key: 'p' }, [
             h(Switch, { key: 'auto', checked: prefs.autosave === true, label: '编辑后自动保存', onChange: (next) => this.set({ autosave: next }) }),
@@ -1071,12 +1079,12 @@ const since = (timestamp) => {
               label: '在对话页显示「人设」标签',
               onChange: (next) => this.set({ showTab: next }),
             }),
-            h(Switch, {
+            ...(sidebarProbe() === undefined ? [] : [            h(Switch, {
               key: 'side',
               checked: prefs.showSidebar !== false,
               label: '注册到 dsh-better-sidebar',
               onChange: (next) => this.set({ showSidebar: next }),
-            }),
+            }),]),
           ]),
           this.state.status === '' ? null : h('span', { className: 'wsp-prefs-row-status', key: 's', 'aria-live': 'polite' }, this.state.status),
         ])
@@ -2401,7 +2409,7 @@ const since = (timestamp) => {
         const prefsRow = h('div', { className: 'wsp-prefs', key: 'prefs' }, [
           h(Switch, { key: 'auto', checked: prefs.autosave === true, label: '编辑后自动保存', onChange: (next) => this.setPref({ autosave: next }) }),
           h(Switch, { key: 'tab', checked: prefs.showTab !== false, label: '在对话页显示「人设」标签', onChange: (next) => this.setPref({ showTab: next }) }),
-          h(Switch, { key: 'side', checked: prefs.showSidebar !== false, label: '注册到 dsh-better-sidebar', onChange: (next) => this.setPref({ showSidebar: next }) }),
+          ...(sidebarProbe() === undefined ? [] : [h(Switch, { key: 'side', checked: prefs.showSidebar !== false, label: '注册到 dsh-better-sidebar', onChange: (next) => this.setPref({ showSidebar: next }) }),])
         ])
 
         const pendingDelete = state.confirmDelete === undefined || state.confirmDelete === null
@@ -2444,6 +2452,14 @@ const since = (timestamp) => {
       // The sidebar is adapted through the sidebar plugin's own service (dsh-better-sidebar):
       // it owns the tab list, and a registered tab type with a guide entry is what appears
       // there. No footer button, and nothing happens when the plugin is absent.
+      sidebarProbe = () => {
+        try {
+          return ctx.get('betterSidebar')
+        } catch {
+          return undefined
+        }
+      }
+
       // Third-party plugins register their sidebar card through the sidebar plugin's own service
       // (`betterSidebar.registerTab`) — that is the call the working plugins use, and it is what puts
       // the card into the sidebar's own 侧边栏内容 list, where the user can also toggle it.

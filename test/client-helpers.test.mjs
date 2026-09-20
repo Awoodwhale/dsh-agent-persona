@@ -236,4 +236,12 @@ assert.ok(source.includes('const persistPrefs = (api, unwrap, current, patch, re
 assert.ok(source.includes('persistPrefs(this.api(), (result) => this.unwrap(result)'), 'the settings page uses it')
 assert.ok(source.includes('persistPrefs(this.api(), unwrapEnvelope'), 'and so does the row')
 
+
+// ── without the sidebar plugin there is no sidebar to register into, so that switch must not appear.
+// It is resolved live rather than once at load, so plugin ordering cannot hide it by mistake.
+assert.ok(source.includes('let sidebarProbe = () => undefined'), 'the probe exists')
+assert.ok(source.includes('sidebarProbe = () => {'), 'and is assigned in apply')
+assert.ok(source.includes("return ctx.get('betterSidebar')"), 'probing the sidebar plugin itself')
+assert.equal((source.match(/sidebarProbe\(\) === undefined/g) ?? []).length, 3, 'two switches and one note gate on it')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
