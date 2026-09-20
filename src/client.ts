@@ -1061,7 +1061,7 @@ const since = (timestamp) => {
         return h('div', { className: 'wsp-prefs-row', 'data-plugin': NS }, [
           h('div', { className: 'wsp-prefs-row-head', key: 'h' }, [
             h('span', { className: 'wsp-prefs-row-title', key: 't' }, 'Agent 人设'),
-            h('span', { className: 'wsp-prefs-row-note', key: 'n' }, '打开即在右侧栏出现 Agent 人设模块，关闭即移除；开关立即生效'),
+            h('span', { className: 'wsp-prefs-row-note', key: 'n' }, '注册后，dsh-better-sidebar 的「侧边卡片 → 侧边栏内容」里会多出 Agent 人设；注销即移除（立即生效）'),
           ]),
           h('div', { className: 'wsp-prefs', key: 'p' }, [
             h(Switch, { key: 'auto', checked: prefs.autosave === true, label: '编辑后自动保存', onChange: (next) => this.set({ autosave: next }) }),
@@ -1074,7 +1074,7 @@ const since = (timestamp) => {
             h(Switch, {
               key: 'side',
               checked: prefs.showSidebar !== false,
-              label: '在侧边栏显示',
+              label: '注册到 dsh-better-sidebar',
               onChange: (next) => this.set({ showSidebar: next }),
             }),
           ]),
@@ -2401,7 +2401,7 @@ const since = (timestamp) => {
         const prefsRow = h('div', { className: 'wsp-prefs', key: 'prefs' }, [
           h(Switch, { key: 'auto', checked: prefs.autosave === true, label: '编辑后自动保存', onChange: (next) => this.setPref({ autosave: next }) }),
           h(Switch, { key: 'tab', checked: prefs.showTab !== false, label: '在对话页显示「人设」标签', onChange: (next) => this.setPref({ showTab: next }) }),
-          h(Switch, { key: 'side', checked: prefs.showSidebar !== false, label: '在侧边栏显示', onChange: (next) => this.setPref({ showSidebar: next }) }),
+          h(Switch, { key: 'side', checked: prefs.showSidebar !== false, label: '注册到 dsh-better-sidebar', onChange: (next) => this.setPref({ showSidebar: next }) }),
         ])
 
         const pendingDelete = state.confirmDelete === undefined || state.confirmDelete === null
