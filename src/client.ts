@@ -1360,7 +1360,8 @@ const since = (timestamp) => {
         // local mirror above only feeds the next load's registration decision.
         const api = this.api()
         if (api !== undefined && typeof api.savePrefs === 'function') {
-          void api.savePrefs(patch).then((result) => {
+          // Send the whole set, not just the changed field: whatever the user sees is what gets stored.
+          void api.savePrefs({ ...this.state.prefs, ...patch }).then((result) => {
             const view = this.unwrap(result)
             const stored = view?.prefs
             if (stored !== undefined && stored !== null) {
