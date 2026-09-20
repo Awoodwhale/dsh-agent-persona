@@ -473,8 +473,9 @@ assert.equal((await sessionPromptFrom(viewCtx, 'pv1', [])).persona, null, 'a ses
 // ── every name the remote namespace exposes must be implemented by the service, or its
 // route answers 500; a name missing from the namespace answers 404 (both were hit)
 const hostSource = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-const exposedNames = [...readFileSync(new URL('../src/endpoints.ts', import.meta.url), 'utf8')
-  .matchAll(/'([A-Za-z0-9_]+)'/g)].map((match) => match[1])
+const endpointsSource = readFileSync(new URL('../src/endpoints.ts', import.meta.url), 'utf8')
+const endpointsArray = endpointsSource.match(/export const RPC_ENDPOINTS = \[([\s\S]*?)\]/)[1]
+const exposedNames = [...endpointsArray.matchAll(/'([A-Za-z0-9_]+)'/g)].map((match) => match[1])
 const serviceStart = hostSource.indexOf('class WorkspacePersonaService')
 const serviceBrace = hostSource.indexOf('{', serviceStart)
 let serviceDepth = 0

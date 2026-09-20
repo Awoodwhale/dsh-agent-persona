@@ -32,29 +32,50 @@ for (const name of endpoints) {
 
 const pkg = readConst('RPC_PACKAGE')
 const channel = readConst('RPC_CHANNEL')
+const service = readConst('RPC_SERVICE')
+const noInputMatch = source.match(/export const RPC_NO_INPUT = \[([\s\S]*?)\]/)
+const noInput = new Set([...(noInputMatch === null ? '' : noInputMatch[1]).matchAll(/'([A-Za-z0-9_]+)'/g)].map((m) => m[1]))
 const header = `// 该文件由 scripts/generate-remote.mjs 生成，请勿手改（改 src/endpoints.ts 后重新生成）。\n`
 
-const descriptor = (name) => `    {
-      service: ${JSON.stringify(pkg)},
-      namespace: ${JSON.stringify(pkg)},
-      method: ${JSON.stringify(name)},
-      invocation: { kind: 'direct' },
-      parameters: [{ name: 'input', wire: 'input', source: 'json', codec: { parse: (value) => value } }],
-      result: { mode: 'strict', typeSymbol: ${JSON.stringify(`${pkg}#View`)}, schema: { parse: (value) => value } },
-    },`
+const remote = `${header}const PKG = ${JSON.stringify(pkg)}
 
-const remote = `${header}export const RPC_CHANNEL = ${JSON.stringify(channel)}
+const codec = (typeSymbol, parse) => ({
+  mode: "strict",
+  typeSymbol: \`\${PKG}#\${typeSymbol}\`,
+  schema: { parse },
+})
+const passthrough = (value) => value
+const asInput = (value) => {
+  if (value === undefined || value === null) return {}
+  if (typeof value !== "object" || Array.isArray(value)) throw new Error("input must be an object")
+  return value
+}
+const withInput = () => [
+  { name: "input", wire: "input", source: "json", codec: codec("Input", asInput) },
+]
+const method = (name, parameters) => ({
+  id: \`\${PKG}#${service}/\${name}\`,
+  service: ${JSON.stringify(service)},
+  namespace: ${JSON.stringify(service)},
+  method: name,
+  invocation: { kind: "direct" },
+  parameters,
+  result: codec("View", passthrough),
+})
 
-/** What the browser half mounts: ctx.remote.$mount(RPC_REMOTE). */
+/**
+ * What the browser half mounts: ctx.remote.$mount(RPC_REMOTE). The field set matches the shape that
+ * worked before this file was generated — an id per descriptor, a strict codec for the input, and an
+ * empty parameter list for the reads that take none.
+ */
 export const RPC_REMOTE = {
-  package: ${JSON.stringify(pkg)},
+  package: PKG,
   descriptors: [
-${endpoints.map(descriptor).join('\n')}
+${endpoints.map((name) => `    method(${JSON.stringify(name)}, ${noInput.has(name) ? '[]' : 'withInput()'}),`).join('\n')}
   ],
 }
 `
 
-const noInput = new Set(['listPersonas', 'listTargets', 'listModels'])
 const signature = (name) => noInput.has(name) ? '(): Promise<unknown>' : '(input: unknown): Promise<unknown>'
 const parameters = (name) => noInput.has(name) ? '[]' : `[
         {

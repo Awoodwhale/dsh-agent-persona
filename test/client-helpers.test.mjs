@@ -180,9 +180,17 @@ assert.ok(manifest.includes('from "zod"') || manifest.includes("from 'zod'"), 'w
 assert.ok(manifest.includes('name: "listPersonas"'), 'and a member entry per endpoint')
 const remote = readFileSync(new URL('../src/remote.ts', import.meta.url), 'utf8')
 assert.ok(remote.includes('export const RPC_REMOTE'), 'the remote artifact exports the object the client mounts')
-assert.ok(source.includes("from './typert.js'"), 'and the client mounts the generated contribution, not a hand-written copy')
-assert.ok(source.includes('$mount(TYPERT)'), 'passing the manifest the remote service mounts')
-assert.ok(manifest.includes('model:'), 'which is the same object the loader validates')
-assert.equal(source.includes('$mount(RPC_REMOTE)'), false, 'never an invented { package, descriptors } object')
+// ── the descriptor manifest must name the service the host registers. Filling these two fields with
+// the package name instead mounts the namespace under a key nothing ever looks up: the page renders,
+// every read stays pending, and nothing reports an error.
+const endpointsSrc = readFileSync(new URL('../src/endpoints.ts', import.meta.url), 'utf8')
+const serviceName = (endpointsSrc.match(/RPC_SERVICE = '([^']+)'/) ?? [])[1]
+assert.equal(serviceName, 'agentPersona', 'the single source declares the service name')
+assert.ok(source.includes("from './remote.js'"), 'the client mounts the descriptor manifest')
+assert.ok(source.includes('$mount(RPC_REMOTE)'), 'passing it to the remote service')
+assert.ok(readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8').includes(`super(ctx, '${serviceName}')`), 'which is what the host registers')
+assert.ok(remote.includes(`service: "${serviceName}"`), 'the generated remote names that service')
+assert.ok(remote.includes(`namespace: "${serviceName}"`), 'under that namespace')
+assert.equal(remote.includes('service: "dsh-agent-persona"'), false, 'never the package name')
 
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
