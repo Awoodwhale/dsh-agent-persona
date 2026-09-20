@@ -633,7 +633,14 @@ const readPrefs = () => {
             data,
             draft: data?.persona === null || data?.persona === undefined
               ? null
-              : { name: data.persona.name, text: data.persona.text, mode: data.persona.mode },
+              : {
+                name: data.persona.name,
+                text: data.persona.text,
+                mode: data.persona.mode,
+                // The card's own switch edits this, so it has to be in the draft: without it the
+                // switch looked inert (no dirty state) and saving wrote the old value back.
+                fallback: data.persona.fallback === true,
+              },
           })
         } catch (error) {
           this.setState({ loading: false, busy: '', error: String((error && error.message) || error) })
@@ -682,7 +689,10 @@ const readPrefs = () => {
         const { data, draft, error, busy, loading, editing, copied, tab, promptView } = this.state
         const persona = data?.persona ?? null
         const dirty = persona !== null && draft !== null
-          && (draft.text !== persona.text || draft.name !== persona.name || draft.mode !== persona.mode)
+          && (draft.text !== persona.text
+            || draft.name !== persona.name
+            || draft.mode !== persona.mode
+            || (draft.fallback === true) !== (persona.fallback === true))
         const matched = data?.matchedBy ?? []
         const prompt = data?.prompt ?? null
 

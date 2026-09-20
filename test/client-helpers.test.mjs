@@ -193,4 +193,12 @@ assert.ok(remote.includes(`service: "${serviceName}"`), 'the generated remote na
 assert.ok(remote.includes(`namespace: "${serviceName}"`), 'under that namespace')
 assert.equal(remote.includes('service: "dsh-agent-persona"'), false, 'never the package name')
 
+
+// ── the view's own draft and dirty check must cover the default flag. Without it the card's switch
+// looked inert and saving wrote the stored value back, which is the bug the user kept hitting.
+const viewAt2 = source.indexOf('class PersonaView')
+const viewBody2 = source.slice(viewAt2, source.indexOf('class ', viewAt2 + 10))
+assert.ok(/fallback: data\.persona\.fallback === true/.test(viewBody2), "the view's draft carries the flag")
+assert.ok(/draft\.fallback === true\) !== \(persona\.fallback === true\)/.test(viewBody2), 'and its dirty check compares it')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))

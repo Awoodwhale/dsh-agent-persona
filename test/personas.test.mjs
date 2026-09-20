@@ -533,6 +533,19 @@ const parsedPath = mod.Config({ storePath: '/tmp/custom-personas.json' })
 assert.equal(parsedPath.storePath, '/tmp/custom-personas.json', 'and accepting a configured path')
 assert.throws(() => mod.Config({ storePath: 42 }), 'while a wrong type is rejected')
 
+
+// ── a partial save must not clear a flag the payload never mentioned
+{
+  const store = { version: 2, personas: [{ id: 'p1', name: 'x', enabled: true, fallback: true, text: 'T', mode: 'append', targets: [] }] }
+  const merged = { ...store.personas[0] }
+  const incoming = { id: 'p1', name: 'x', enabled: true, text: 'T2', mode: 'append', targets: [] }
+  const mentions = 'fallback' in incoming
+  merged.fallback = mentions ? incoming.fallback === true : merged.fallback
+  merged.text = incoming.text
+  assert.equal(merged.fallback, true, 'omitting the key keeps the stored default flag')
+  assert.equal(merged.text, 'T2', 'while the mentioned fields still change')
+}
+
 console.log(JSON.stringify({
   ok: true,
   checks: 134,

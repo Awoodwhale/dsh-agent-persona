@@ -1223,7 +1223,10 @@ export function apply(ctx, config = {}) {
         if (persona === undefined) throw new Error('人设不存在（可能已被删除）')
         persona.name = next.name
         persona.enabled = next.enabled
-        persona.fallback = next.fallback
+        // A payload that omits the key keeps whatever is stored: a partial update must not silently
+        // clear a flag it never mentioned (that is how the default persona kept turning itself off).
+        const mentionsFallback = input !== null && typeof input === 'object' && 'fallback' in input
+        persona.fallback = mentionsFallback ? next.fallback : persona.fallback
         persona.text = next.text
         persona.mode = next.mode
         persona.targets = next.targets
