@@ -1039,7 +1039,7 @@ const since = (timestamp) => {
         return h('div', { className: 'wsp-prefs-row', 'data-plugin': NS }, [
           h('div', { className: 'wsp-prefs-row-head', key: 'h' }, [
             h('span', { className: 'wsp-prefs-row-title', key: 't' }, 'Agent 人设'),
-            h('span', { className: 'wsp-prefs-row-note', key: 'n' }, '关闭显示位置后，可随时回到这里重新打开'),
+            h('span', { className: 'wsp-prefs-row-note', key: 'n' }, '关闭显示位置后，可随时回到这里重新打开；重新打开侧边栏后，需在右侧栏的「新标签页」里再选一次「Agent 人设」'),
           ]),
           h('div', { className: 'wsp-prefs', key: 'p' }, [
             h(Switch, { key: 'auto', checked: prefs.autosave === true, label: '编辑后自动保存', onChange: (next) => this.set({ autosave: next }) }),
