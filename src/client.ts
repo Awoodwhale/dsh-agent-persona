@@ -2439,47 +2439,41 @@ const since = (timestamp) => {
         id: 'agent-persona',
         order: 30,
         label: () => '人设',
-        inject: () => ({ api: capturedApi }),
       }, PersonaView))
 
       // The sidebar is adapted through the sidebar plugin's own service (dsh-better-sidebar):
       // it owns the tab list, and a registered tab type with a guide entry is what appears
       // there. No footer button, and nothing happens when the plugin is absent.
-      // The sidebar module is registered or removed on demand, so the switch takes effect at once:
-      // on adds it to the right bar, off takes it away. The sidebar plugin owns the placement, so
-      // turning it on asks that service to open the module instead of leaving an empty bar.
-      // Tab bodies: always registered, so a tab of this kind can render the moment the type exists.
-      ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
-        name: 'sidebar.right.pane.tab',
-        key: NS,
-        inject: () => ({ api: capturedApi }),
-      }, SidebarPersonaView))
-
-      ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
-        name: 'sidebar.right.pane.tab.title',
-        key: NS,
-        inject: () => ({ api: capturedApi }),
-      }, () => 'Agent 人设'))
-
-      ctx.inject(['sidebarRightTabs'], (own) => {
-        const tabs = own?.sidebarRightTabs ?? own?.get?.('sidebarRightTabs')
-        sidebarAvailable = tabs !== undefined && typeof tabs.register === 'function'
-        if (sidebarAvailable !== true) return
-        let disposer
+      // Third-party plugins register their sidebar card through the sidebar plugin's own service
+      // (`betterSidebar.registerTab`) — that is the call the working plugins use, and it is what puts
+      // the card into the sidebar's own 侧边栏内容 list, where the user can also toggle it.
+      // The preference decides whether the card exists at all, so the switch acts at once.
+      {
+        let disposeTab
         syncSidebarModule = () => {
-          if (typeof disposer === 'function') disposer()
-          disposer = undefined
+          if (typeof disposeTab === 'function') {
+            disposeTab()
+            disposeTab = undefined
+          }
           if (readPrefs().showSidebar === false) return
-          disposer = tabs.register({
+          let better
+          try {
+            better = ctx.get('betterSidebar')
+          } catch {
+            better = undefined
+          }
+          sidebarAvailable = better !== undefined && better !== null && typeof better.registerTab === 'function'
+          if (sidebarAvailable !== true) return
+          disposeTab = better.registerTab({
             id: NS,
-            kind: NS,
             title: () => 'Agent 人设',
-            guide: [{ order: 30, title: () => 'Agent 人设', description: () => '这条会话的人设、实际发送的提示词，以及全部人设的管理' }],
+            order: 30,
+            single: true,
+            component: SidebarPersonaView,
           })
-          openSidebarModule(ctx)
         }
         syncSidebarModule()
-      })
+      }
 
       // Always registered, whatever the display switches say: this is the way back from them.
       ctx.slots.inject('settings.general.item', () => ctx.slots.register({

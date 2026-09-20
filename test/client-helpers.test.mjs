@@ -60,7 +60,7 @@ for (const match of source.matchAll(/slots\.register\(/g)) {
 }
 const unresolvedRegistrants = [...new Set(registrants)].filter((name) => !defined.has(name) && !imported.has(name))
 assert.deepEqual(unresolvedRegistrants, [], `slot registrants that are never defined: ${unresolvedRegistrants.join(', ')}`)
-assert.ok(registrants.length >= 4, `and the audit found the slot registrants (${registrants.length})`)
+assert.ok(registrants.length >= 3, `and the audit found the slot registrants (${registrants.length})`)
 const iconsUsed = [...new Set([...source.matchAll(/\b(Icon[A-Za-z0-9]+)\b/g)].map((match) => match[1]))]
 const unresolvedIcons = iconsUsed.filter((name) => !imported.has(name) && !defined.has(name))
 assert.deepEqual(unresolvedIcons, [], `these icons are used but never imported: ${unresolvedIcons.join(', ')}`)
