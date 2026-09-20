@@ -33,7 +33,7 @@ Three surfaces, three jobs:
 
 | Surface | Where | What for |
 |---|---|---|
-| **Settings page** | Settings → Agent 人设 | Create, edit, delete, duplicate and reorder personas; write the body, preview Markdown, let AI rework it |
+| **Settings page** | Settings → Agent 人设 | Create, edit, delete, duplicate and reorder personas; write the body, preview Markdown, let AI rework it. Beside the title: the **GitHub and npm links** and the **version of the copy actually installed** (its tooltip says whether this copy came from npm or from a local checkout) |
 | **Session view** | the **人设** tab on a conversation | Which persona this session matched and why, the **system prompt it actually sent** (rendered and source), and the same management UI inline |
 | **Sidebar card** | the right bar of `dsh-better-sidebar` | Puts that same view into the sidebar (needs that plugin installed) |
 

@@ -102,6 +102,23 @@ window.__ModuleLoader__.load({
 
     /** Interface preferences: where the persona page shows up, and whether edits save themselves. */
     const PREF_KEY = 'dsh-agent-persona.prefs'
+    /**
+     * Brand marks for the project links, taken from simple-icons (CC0 data). They are inlined rather than
+     * imported: the component library ships no brand glyphs, and bundling the whole icon set for two marks
+     * would cost far more than these two path strings. `currentColor` keeps them on the pill's text colour,
+     * so no colour is hardcoded here.
+     */
+    const MarkGithub = (props) => h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', ...props },
+      h('path', { fill: 'currentColor', d: 'M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12' }))
+
+    const MarkNpm = (props) => h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', ...props },
+      h('path', { fill: 'currentColor', d: 'M1.763 0C.786 0 0 .786 0 1.763v20.474C0 23.214.786 24 1.763 24h20.474c.977 0 1.763-.786 1.763-1.763V1.763C24 .786 23.214 0 22.237 0zM5.13 5.323l13.837.019-.009 13.836h-3.464l.01-10.382h-3.456L12.04 19.17H5.113z' }))
+
+    /** Project source addresses, shown as two pills beside the settings page title. */
+    const PROJECT_LINKS = [
+      { id: 'github', label: 'GitHub', icon: MarkGithub, href: 'https://github.com/Awoodwhale/dsh-agent-persona', title: '项目源地址：GitHub 仓库' },
+      { id: 'npm', label: 'npm', icon: MarkNpm, href: 'https://www.npmjs.com/package/dsh-agent-persona', title: 'npm 包页面' },
+    ]
     const DEFAULT_PREFS = { autosave: false, showTab: true, showSidebar: true }
     /**
      * Whether the sidebar plugin is installed. Answered by that plugin's own service at render time:
@@ -211,10 +228,17 @@ const readPrefs = () => {
   color: var(--wsp-text); -webkit-font-smoothing: antialiased;
 }
 
-.wsp-head { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 2px; }
-.wsp-title { font-size: 18px; font-weight: 600; letter-spacing: -0.012em; line-height: 1.3; margin: 0; }
+.wsp-head { display: flex; flex-direction: column; gap: 12px; padding: 2px 0 2px; }
+.wsp-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 18px; font-weight: 600; letter-spacing: -0.012em; line-height: 1.3; margin: 0; }
+/* Project source addresses beside the settings title: two small pills plus the installed version. */
+.wsp-srcs { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.wsp-src { display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 7px; border: 1px solid var(--wsp-line); border-radius: 999px; background: var(--wsp-surface-3); font-size: 10.5px; font-weight: 500; line-height: 1; color: var(--wsp-muted); text-decoration: none; transition: color 150ms ease, background 150ms ease, border-color 150ms ease; }
+.wsp-src svg { width: 11px; height: 11px; flex: none; opacity: 0.9; }
+.wsp-src:hover { color: var(--wsp-text); background: var(--wsp-hover); border-color: var(--wsp-line-strong); }
+.wsp-src:focus-visible { outline: 2px solid var(--wsp-accent); outline-offset: 1px; }
+.wsp-ver { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 999px; background: var(--wsp-surface-2); font-size: 10.5px; line-height: 1; color: var(--wsp-muted-2); font-variant-numeric: tabular-nums; }
 .wsp-sub { font-size: 13px; line-height: 1.65; color: var(--wsp-muted); text-wrap: pretty; max-width: 72ch; margin: 0; }
-.wsp-meta { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; font-size: 11.5px; color: var(--wsp-muted-2); margin-top: 2px; }
+.wsp-meta { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; font-size: 11.5px; color: var(--wsp-muted-2); }
 .wsp-meta code { font-family: var(--wsp-mono); font-size: 11px; }
 .wsp-sep { opacity: 0.45; }
 .wsp-spacer { flex: 1; min-width: 6px; }
@@ -241,7 +265,7 @@ const readPrefs = () => {
    card's own 12px corners, instead of a second rounded box drawn inside it. */
 .wsp-card:not(.wsp-card-open):hover { border-color: var(--wsp-line-strong); background: var(--wsp-surface-2); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
 .wsp-card-open { border-color: var(--wsp-line-strong); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.04); }
-.wsp-prefs { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 10px; }
+.wsp-prefs { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 .wsp-prefs .wsp-switch-text { font-size: 12.5px; }
 .wsp-row-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px 3px; min-height: 44px; box-sizing: border-box; flex-wrap: wrap; border-radius: 12px 12px 0 0; }
 /* 展开后的卡片：头部吸顶，保存按钮就在手边 */
@@ -1653,7 +1677,28 @@ const since = (timestamp) => {
         // only the counts, the store path and the cards wait for the host. Nobody
         // should stare at "加载中…" for content that never changes.
         const header = h('div', { className: 'wsp-head', key: 'head' }, [
-          h('h2', { className: 'wsp-title', key: 't' }, 'Agent 人设'),
+          h('h2', { className: 'wsp-title', key: 't' }, [
+            'Agent 人设',
+            h('span', { className: 'wsp-srcs', key: 'src' }, [
+              ...PROJECT_LINKS.map((link) => h('a', {
+                className: 'wsp-src',
+                key: link.id,
+                href: link.href,
+                title: link.title,
+                target: '_blank',
+                rel: 'noreferrer noopener',
+              }, [h(link.icon, { key: 'i' }), h('span', { key: 'l' }, link.label)])),
+              view === undefined || view.pluginVersion === ''
+                ? null
+                : h('span', {
+                  className: 'wsp-ver',
+                  key: 'ver',
+                  title: view.installOrigin === 'npm'
+                    ? `当前安装的版本：${view.pluginVersion}（来自 npm 安装）`
+                    : `当前版本：${view.pluginVersion}（本地开发目录加载）`,
+                }, view.pluginVersion),
+            ]),
+          ]),
           h('p', { className: 'wsp-sub', key: 's' }, DESCRIPTION),
           h('div', { className: 'wsp-meta', key: 'm' }, view === undefined
             ? ['正在读取人设…']

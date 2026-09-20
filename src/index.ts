@@ -1183,6 +1183,22 @@ export function apply(ctx, config = {}) {
     invalid: target.value.trim() === '' || (target.match === 'regex' && compile(target.value) === undefined),
   })
 
+  /**
+   * The version of the copy that is actually running, and where it was loaded from — read from the
+   * package beside this module, so a development checkout and an npm install report different things.
+   */
+  const PLUGIN_INFO = (() => {
+    try {
+      const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+      return {
+        version: typeof manifest?.version === 'string' ? manifest.version : '',
+        origin: new URL(import.meta.url).pathname.includes('node_modules') ? 'npm' : 'local',
+      }
+    } catch {
+      return { version: '', origin: 'unknown' }
+    }
+  })()
+
   const view = () => {
     const current = reload()
     const personas = current.personas.map((persona, index) => ({
@@ -1197,6 +1213,8 @@ export function apply(ctx, config = {}) {
       version: STORE_VERSION,
       storePath,
       prefs: normalizePrefs(reload().prefs),
+      pluginVersion: PLUGIN_INFO.version,
+      installOrigin: PLUGIN_INFO.origin,
       sectionName: SECTION_NAME,
       sectionOrder: order,
       allowedVariables: [...ALLOWED_VARIABLES],
@@ -1442,6 +1460,8 @@ export function apply(ctx, config = {}) {
     writeFileSync(HEARTBEAT_FILE, `${JSON.stringify({
       loadedAt: new Date().toISOString(),
       loadedModule: new URL(import.meta.url).pathname,
+      pluginVersion: PLUGIN_INFO.version,
+      installOrigin: PLUGIN_INFO.origin,
       storePath,
       storeVersion: store.version,
       personas: store.personas.length,

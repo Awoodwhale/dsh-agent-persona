@@ -241,4 +241,18 @@ assert.ok(source.includes('sidebarProbe = () => {'), 'and is assigned in apply')
 assert.ok(source.includes("return ctx.get('betterSidebar')"), 'probing the sidebar plugin itself')
 assert.equal((source.match(/sidebarProbe\(\) === undefined/g) ?? []).length, 1, 'the settings page gates that one switch on it')
 
+// ── the project links beside the settings title carry the real brand marks, inlined rather than
+// borrowed from the component library (which ships none), and the version chip reports the copy that
+// is actually running rather than a string written into the source.
+assert.ok(source.includes('M12 .297c-6.63'), 'the GitHub mark is inlined')
+assert.ok(source.includes('M1.763 0C.786 0'), 'the npm mark is inlined')
+assert.equal((source.match(/fill: 'currentColor'/g) ?? []).length, 2, 'both marks take the pill colour, so no colour is hardcoded')
+assert.ok(source.includes("href: 'https://github.com/Awoodwhale/dsh-agent-persona'"), 'the GitHub link is the repository')
+assert.ok(source.includes("href: 'https://www.npmjs.com/package/dsh-agent-persona'"), 'the npm link is the package page')
+const hostSourceForVersion = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8')
+assert.ok(hostSourceForVersion.includes("new URL('../package.json', import.meta.url)"), 'the host reads its own manifest for the version')
+assert.ok(hostSourceForVersion.includes('pluginVersion: PLUGIN_INFO.version'), 'and reports it in the view')
+assert.ok(hostSourceForVersion.includes('installOrigin: PLUGIN_INFO.origin'), 'along with whether this copy came from npm or a checkout')
+assert.equal(/pluginVersion: '0\./.test(hostSourceForVersion), false, 'never a version string baked into the source')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))

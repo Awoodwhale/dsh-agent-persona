@@ -120,7 +120,7 @@ host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `supe
 
 | 方法 | 入参 | 返回 |
 |---|---|---|
-| `listPersonas` | — | 视图：`storePath` / `sectionName` / `sectionOrder` / `allowedVariables` / `targetKinds` / `targetMatches` / `tuneModes` / `counts` / **`prefs`** / `personas[]`（含 `chars`、`noTargets`、`fallback`、每个 target 的 `invalid` 标记） |
+| `listPersonas` | — | 视图：`storePath` / `sectionName` / `sectionOrder` / `allowedVariables` / `targetKinds` / `targetMatches` / `tuneModes` / `counts` / **`prefs`** / **`pluginVersion`** / **`installOrigin`** / `personas[]`（含 `chars`、`noTargets`、`fallback`、每个 target 的 `invalid` 标记） |
 | `savePersona` | `{ id?, name, enabled, fallback?, mode?, text, targets }` | 视图（无 `id` = 新建，追加到末尾 = 最低优先级；`fallback` 未提及则保留原值） |
 | `deletePersona` | `{ id }` | 视图 |
 | `movePersona` | `{ id, delta: -1 \| 1 }` | 视图 |
@@ -144,7 +144,7 @@ host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `supe
 
 | 座位 / 方式 | 位置 | 说明 |
 |---|---|---|
-| `settings.section`（order 22） | 设置 → Agent 人设 | 完整管理页：**三个偏好开关**、列表、规则编辑器、正文编辑/预览、AI 调优 —— 它不受这三个开关影响，所以是它们的回头路 |
+| `settings.section`（order 22） | 设置 → Agent 人设 | 完整管理页：**三个偏好开关**、列表、规则编辑器、正文编辑/预览、AI 调优 —— 它不受这三个开关影响，所以是它们的回头路。标题旁是项目链接（GitHub / npm，simple-icons 的品牌图形内联，`currentColor` 跟随主题）与**当前安装版本的胶囊**（数据来自宿主的 `PLUGIN_INFO`，见 §4 的 `pluginVersion` / `installOrigin`） |
 | `conversation.view`（order 30） | 对话页顶部「人设」 | 人设 / 提示词 / 管理 三个面板；由 `showTab` 决定是否注册 |
 | `betterSidebar.registerTab` | dsh-better-sidebar 的右侧栏 | 同一套页面挂进侧边栏；由 `showSidebar` 决定注册还是注销，未装该插件时**不注册也不显示开关** |
 
