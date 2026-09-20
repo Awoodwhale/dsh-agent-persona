@@ -52,11 +52,12 @@ workspace cannot touch this layer.
 
 ## Install
 
-Supported DSH releases: **0.1.5-rc.1 / 0.1.5-rc.2** (declared in `package.json` under `dsh.compatibility`).
-Earlier releases have neither the slot generation nor the remote gateway this plugin needs, so installing there
-does nothing visible. The sidebar card additionally needs **`dsh-better-sidebar`**: without it the
-`注册到 dsh-better-sidebar` switch is not shown at all (there is nothing to register into), and everything else works
-as usual.
+**Tested against DSH `0.1.5-rc.1` (the author's development environment) and `0.1.5-rc.2`.** That is what
+`package.json`'s `dsh.compatibility` declares — it means "we ran on these", not a promise of compatibility work
+for older or newer releases; please verify on yours.
+
+The sidebar card additionally needs **`dsh-better-sidebar`**: without it the `注册到 dsh-better-sidebar` switch is not
+shown at all (there is nothing to register into), and everything else works as usual.
 
 ```bash
 dsh plugin --profile web add dsh-agent-persona
@@ -87,12 +88,25 @@ To remove: `dsh plugin --profile web remove dsh-agent-persona`, restart; the per
 - Boundaries like prefixes and regexes are available through **type it yourself…**.
 - A persona with **no rows applies nowhere** (it is a draft) unless it is marked as the default.
 
+### Reading what a session actually said
+
+The button next to the session dropdown opens a **read-only** transcript: your inputs on the right, the agent's
+replies on the left.
+
+- **Only what you actually typed.** Workspace instructions (`AGENTS.md`), runtime context snapshots, skill
+  directory notes — anything the harness or another plugin injected as a user-role message — are left out, with a
+  single line at the top saying how many were hidden.
+- Long messages are clipped; **展开全文** re-reads just that one and replaces that bubble, and **收起全文** puts the
+  short text back.
+- **跳到最新** shows only the last user input and everything after it.
+
 ### The 人设 tab on a conversation
 
 **人设 / 提示词 / 管理**:
 
-- **人设** — which persona matched, why (a rule or the default), the body as Markdown, and an inline editor
-  (name, default switch, injection mode, body). Editing shows 未保存 · 点击保存 in the card header.
+- **人设** — which persona matched, **which of its rules matched**, the body as Markdown, its own state markers
+  (in use / disabled, whether it is the default, its injection mode), and an inline editor (name, default switch,
+  injection mode, body). Editing shows 未保存 · 点击保存 in the card header.
 - **提示词** — the prompt this session **actually sent**, with rendered/source views, copy and refresh. With no
   persona matched it shows DSH's own prompt verbatim.
 - **管理** — the same cards as the settings page, in place.
