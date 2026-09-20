@@ -131,8 +131,9 @@ assert.ok(source.includes('clearTimeout(this.autosaveTimer)'), 'and its timer is
 
 // ── the sidebar switch belongs to the sidebar plugin being installed
 assert.ok(source.includes('let sidebarAvailable = false'), 'availability starts false')
-assert.ok(source.includes('sidebarAvailable = true'), 'and is set where the sidebar service is injected')
-assert.ok(/sidebarAvailable[\s\n]*\?\s*h\(Switch/.test(source), 'the switch is rendered only when it is available')
+assert.ok(source.includes('sidebarAvailable = tabs !== undefined'), 'and is set from the service the inject hands over')
+assert.ok(source.includes('syncSidebarModule = () => {'), 'with a synchroniser the preference can call')
+assert.equal(/sidebarAvailable[\s\n]*\?\s*h\(Switch/.test(source), false, 'the switches are always rendered, never gated on availability')
 
 
 // ── autosave must not fire on a half-made choice: picking a workspace/session or adding a rule

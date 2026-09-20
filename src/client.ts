@@ -2401,9 +2401,7 @@ const since = (timestamp) => {
         const prefsRow = h('div', { className: 'wsp-prefs', key: 'prefs' }, [
           h(Switch, { key: 'auto', checked: prefs.autosave === true, label: '编辑后自动保存', onChange: (next) => this.setPref({ autosave: next }) }),
           h(Switch, { key: 'tab', checked: prefs.showTab !== false, label: '在对话页显示「人设」标签', onChange: (next) => this.setPref({ showTab: next }) }),
-          sidebarAvailable
-            ? h(Switch, { key: 'side', checked: prefs.showSidebar !== false, label: '在侧边栏显示', onChange: (next) => this.setPref({ showSidebar: next }) })
-            : null,
+          h(Switch, { key: 'side', checked: prefs.showSidebar !== false, label: '在侧边栏显示', onChange: (next) => this.setPref({ showSidebar: next }) }),
         ])
 
         const pendingDelete = state.confirmDelete === undefined || state.confirmDelete === null
