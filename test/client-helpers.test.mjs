@@ -215,8 +215,20 @@ assert.ok(setBody.includes('patchDraft(patch'), 'the settings component has patc
 
 
 // ── preferences live in the store file with the personas; localStorage is only the load-time mirror
-assert.ok(source.includes('typeof api.savePrefs === \'function\''), 'a preference save goes through the host')
+assert.ok(source.includes("typeof api.savePrefs !== 'function'"), 'a preference save goes through the host')
 assert.ok(source.includes('writePrefs(view.prefs)'), 'and every view refreshes the local mirror')
 assert.ok(source.includes('store is the source of truth for preferences'), 'which the comment states, so nobody mistakes the mirror for the truth')
+
+
+// ── the display switches must never be able to hide their own way back: the same three switches are
+// also a row in Settings → General, registered outside any preference gate
+const prefsRowAt = source.indexOf('class PersonaPrefsRow')
+assert.ok(prefsRowAt > 0, 'the General-settings row exists')
+assert.ok(source.slice(prefsRowAt).includes("'settings.general.item'"), 'and is registered in that seat')
+const generalReg = source.slice(source.indexOf("ctx.slots.inject('settings.general.item'"), source.indexOf("ctx.slots.inject('settings.section'"))
+assert.equal(/if \(prefs\./.test(generalReg), false, 'with no preference gating it')
+assert.ok(source.includes('const persistPrefs = (api, unwrap, current, patch, report)'), 'both surfaces share one save implementation')
+assert.ok(source.includes('persistPrefs(this.api(), (result) => this.unwrap(result)'), 'the settings page uses it')
+assert.ok(source.includes('persistPrefs(this.api(), unwrapEnvelope'), 'and so does the row')
 
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))

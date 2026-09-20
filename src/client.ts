@@ -121,6 +121,30 @@ const readPrefs = () => {
         return { ...DEFAULT_PREFS }
       }
     }
+    /** Status line for a preference change: the two display switches only take effect on reload. */
+    const prefStatus = (next, patch) => ('showTab' in patch || 'showSidebar' in patch)
+      ? '已保存：显示位置在重新打开页面后生效'
+      : (next.autosave === true ? '已开启：编辑后停止输入约 1 秒即自动保存' : '已关闭：编辑后自动保存')
+
+    /**
+     * Persist preferences through the host so they live in the same file as the personas, and keep the
+     * load-time mirror in step. One implementation, used by every switch in the plugin: the settings page
+     * and the General-settings row must never drift apart.
+     */
+    const persistPrefs = (api, unwrap, current, patch, report) => {
+      const next = writePrefs({ ...current, ...patch })
+      report({ prefs: next, status: prefStatus(next, patch) })
+      if (api === undefined || typeof api.savePrefs !== 'function') return next
+      void api.savePrefs(next).then((result) => {
+        const view = unwrap === undefined ? result : unwrap(result)
+        const stored = view !== undefined && view !== null && view.prefs !== undefined && view.prefs !== null ? writePrefs(view.prefs) : undefined
+        report(stored === undefined ? { view } : { prefs: { ...next, ...stored }, view })
+      }).catch((error) => {
+        report({ status: `偏好未写入存储（只在本浏览器生效）：${String((error && error.message) || error)}` })
+      })
+      return next
+    }
+
     const writePrefs = (patch) => {
       const next = { ...readPrefs(), ...patch }
       try {
@@ -191,6 +215,12 @@ const readPrefs = () => {
 .wsp-card:not(.wsp-card-open):hover { border-color: var(--wsp-line-strong); background: var(--wsp-surface-2); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
 .wsp-card-open { border-color: var(--wsp-line-strong); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.04); }
 .wsp-prefs { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 10px; }
+.wsp-prefs-row { display: flex; flex-direction: column; gap: 4px; }
+.wsp-prefs-row-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.wsp-prefs-row-title { font-size: 13px; font-weight: 600; color: var(--wsp-text); }
+.wsp-prefs-row-note { font-size: 11px; color: var(--wsp-muted-2); }
+.wsp-prefs-row-status { font-size: 11.5px; color: var(--wsp-muted); }
+.wsp-prefs-row .wsp-prefs { margin-top: 4px; }
 .wsp-prefs .wsp-switch-text { font-size: 12.5px; }
 .wsp-row-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px 3px; min-height: 44px; box-sizing: border-box; flex-wrap: wrap; border-radius: 12px 12px 0 0; }
 /* 展开后的卡片：头部吸顶，保存按钮就在手边 */
@@ -956,6 +986,81 @@ const since = (timestamp) => {
 
     // ── the settings page ───────────────────────────────────────────────────
 
+    /**
+     * The same three switches, as a row in Settings → General. It exists because the two display
+     * switches can hide the conversation tab and the sidebar seats: without a surface that no
+     * preference can hide, switching the sidebar off would leave no way back to the switch.
+     */
+    class PersonaPrefsRow extends React.Component {
+      constructor(props) {
+        super(props)
+        this.state = { prefs: readPrefs(), status: '' }
+        this.mounted = false
+      }
+
+      componentDidMount() {
+        this.mounted = true
+        void this.load()
+      }
+
+      componentWillUnmount() {
+        this.mounted = false
+      }
+
+      api() {
+        return this.props?.api ?? capturedApi
+      }
+
+      async load() {
+        const api = this.api()
+        if (api === undefined) return
+        try {
+          const view = unwrapEnvelope(await api.listPersonas())
+          if (this.mounted !== true) return
+          if (view !== undefined && view !== null && view.prefs !== undefined && view.prefs !== null) writePrefs(view.prefs)
+          this.setState({ prefs: (view !== undefined && view !== null && view.prefs) || this.state.prefs })
+        } catch (error) {
+          if (this.mounted === true) this.setState({ status: `读取偏好失败：${String((error && error.message) || error)}` })
+        }
+      }
+
+      set(patch) {
+        persistPrefs(this.api(), unwrapEnvelope, this.state.prefs ?? DEFAULT_PREFS, patch, (update) => {
+          if (this.mounted !== true) return
+          this.setState((previous) => ({
+            prefs: update.prefs ?? previous.prefs,
+            status: update.status ?? previous.status,
+          }))
+        })
+      }
+
+      render() {
+        const prefs = this.state.prefs ?? DEFAULT_PREFS
+        return h('div', { className: 'wsp-prefs-row', 'data-plugin': NS }, [
+          h('div', { className: 'wsp-prefs-row-head', key: 'h' }, [
+            h('span', { className: 'wsp-prefs-row-title', key: 't' }, 'Agent 人设'),
+            h('span', { className: 'wsp-prefs-row-note', key: 'n' }, '关闭显示位置后，可随时回到这里重新打开'),
+          ]),
+          h('div', { className: 'wsp-prefs', key: 'p' }, [
+            h(Switch, { key: 'auto', checked: prefs.autosave === true, label: '编辑后自动保存', onChange: (next) => this.set({ autosave: next }) }),
+            h(Switch, {
+              key: 'tab',
+              checked: prefs.showTab !== false,
+              label: '在对话页显示「人设」标签',
+              onChange: (next) => this.set({ showTab: next }),
+            }),
+            h(Switch, {
+              key: 'side',
+              checked: prefs.showSidebar !== false,
+              label: '在侧边栏显示',
+              onChange: (next) => this.set({ showSidebar: next }),
+            }),
+          ]),
+          this.state.status === '' ? null : h('span', { className: 'wsp-prefs-row-status', key: 's', 'aria-live': 'polite' }, this.state.status),
+        ])
+      }
+    }
+
     class WorkspacePersonaSection extends React.Component {
       constructor(props) {
         super(props === undefined || props === null ? {} : props)
@@ -1355,32 +1460,7 @@ const since = (timestamp) => {
 
       /** Persist one interface preference. The two position switches apply on the next page load. */
       setPref(patch) {
-        const next = writePrefs(patch)
-        // Persist through the host so the preference lives in the same file as the personas; the
-        // local mirror above only feeds the next load's registration decision.
-        const api = this.api()
-        if (api !== undefined && typeof api.savePrefs === 'function') {
-          // Send the whole set, not just the changed field: whatever the user sees is what gets stored.
-          void api.savePrefs({ ...this.state.prefs, ...patch }).then((result) => {
-            const view = this.unwrap(result)
-            const stored = view?.prefs
-            if (stored !== undefined && stored !== null) {
-              writePrefs(stored)
-              this.onChange({ prefs: { ...next, ...stored }, view })
-              return
-            }
-            this.onChange({ view })
-          }).catch((error) => {
-            this.onChange({ status: `偏好未写入存储（只在本浏览器生效）：${String((error && error.message) || error)}` })
-          })
-        }
-        const needsReload = ('showTab' in patch || 'showSidebar' in patch)
-        this.onChange({
-          prefs: next,
-          status: needsReload
-            ? '已保存：显示位置在重新打开页面后生效'
-            : (next.autosave ? '已开启：编辑后停止输入约 1 秒即自动保存' : '已关闭：编辑后自动保存'),
-        })
+        persistPrefs(this.api(), (result) => this.unwrap(result), this.state.prefs ?? DEFAULT_PREFS, patch, (update) => this.onChange(update))
       }
 
       /** Debounced autosave, armed only while the preference is on. */
@@ -2372,6 +2452,14 @@ const since = (timestamp) => {
         name: 'sidebar.right.pane.tab.title',
         key: 'agent-persona',
       }, () => 'Agent 人设'))
+
+      // Always registered, whatever the display switches say: this is the way back from them.
+      ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+        name: 'settings.general.item',
+        id: NS,
+        order: 30,
+        inject: () => ({ api: capturedApi }),
+      }, PersonaPrefsRow))
 
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
