@@ -201,4 +201,16 @@ const viewBody2 = source.slice(viewAt2, source.indexOf('class ', viewAt2 + 10))
 assert.ok(/fallback: data\.persona\.fallback === true/.test(viewBody2), "the view's draft carries the flag")
 assert.ok(/draft\.fallback === true\) !== \(persona\.fallback === true\)/.test(viewBody2), 'and its dirty check compares it')
 
+
+// ── the view has patch(), the settings component has patchDraft(); calling the other one throws
+// inside an event handler, so the control simply does nothing and nothing is reported anywhere.
+const pvAt = source.indexOf('class PersonaView')
+const pvBody = source.slice(pvAt, source.indexOf('class ', pvAt + 10))
+const setAt = source.indexOf('class WorkspacePersonaSection')
+const setBody = source.slice(setAt, source.indexOf('class ', setAt + 10))
+assert.equal(pvBody.includes('this.patchDraft('), false, 'the view must not call the settings-only patchDraft')
+assert.equal(setBody.includes('this.patch('), false, 'and the settings component must not call the view-only patch')
+assert.ok(pvBody.includes('patch(patch) {'), 'the view has patch()')
+assert.ok(setBody.includes('patchDraft(patch'), 'the settings component has patchDraft()')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))

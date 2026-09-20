@@ -821,7 +821,7 @@ const readPrefs = () => {
                         key: 'fb',
                         checked: draft.fallback === true,
                         label: '作为默认人设（未命中任何位置的会话都用它，同一时刻只能有一条）',
-                        onChange: (next) => this.patchDraft({ fallback: next }),
+                        onChange: (next) => this.patch({ fallback: next }),
                       }),
                     ]),
                   ]),
