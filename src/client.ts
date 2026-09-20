@@ -119,8 +119,8 @@ const openSidebarModule = (ctx) => {
     const current = JSON.parse(window.localStorage?.getItem('dsh.sessions.current') ?? '{}')
     if (typeof current?.sessionId !== 'string') return false
     void better.openTab({ type: NS }, { sessionId: current.sessionId })
-    const layout = ctx.get('layout')
-    if (layout !== undefined && layout !== null && typeof layout.openRightbar === 'function') layout.openRightbar(true, false)
+    // No pop-up: the module is placed in the layout and shows up when the right bar is looked at.
+    // Forcing the pane open is the sidebar plugin's business, not a preference switch's.
     return true
   } catch {
     return false
