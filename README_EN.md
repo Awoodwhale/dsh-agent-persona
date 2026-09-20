@@ -54,7 +54,9 @@ workspace cannot touch this layer.
 
 Supported DSH releases: **0.1.5-rc.1 / 0.1.5-rc.2** (declared in `package.json` under `dsh.compatibility`).
 Earlier releases have neither the slot generation nor the remote gateway this plugin needs, so installing there
-does nothing visible.
+does nothing visible. The sidebar card additionally needs **`dsh-better-sidebar`**: without it the
+`注册到 dsh-better-sidebar` switch is not shown at all (there is nothing to register into), and everything else works
+as usual.
 
 ```bash
 dsh plugin --profile web add dsh-agent-persona

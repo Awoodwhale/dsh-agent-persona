@@ -44,8 +44,9 @@ DSH 会把工作区指令（`AGENTS.md` 之类）变成一条 **user 角色**的
 
 ## 装
 
-支持的 DSH 版本：**0.1.5-rc.1 / 0.1.5-rc.2**（写在 `package.json` 的 `dsh.compatibility` 里）。更早的版本没有
-`sidebarRightTabs` 那一代的座位与远程网关，装上去不会有反应。
+支持的 DSH 版本：**0.1.5-rc.1 / 0.1.5-rc.2**（写在 `package.json` 的 `dsh.compatibility` 里）。更早的版本既没有
+这一代插件座位，也没有远程网关，装上去不会有反应。侧边栏卡片还需要 **`dsh-better-sidebar`**：没装它时，
+「注册到 dsh-better-sidebar」这个开关不会出现（没有可注册的地方），插件其余功能照常。
 
 ```bash
 dsh plugin --profile web add dsh-agent-persona

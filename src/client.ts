@@ -104,10 +104,12 @@ window.__ModuleLoader__.load({
     const PREF_KEY = 'dsh-agent-persona.prefs'
     const DEFAULT_PREFS = { autosave: false, showTab: true, showSidebar: true }
     /**
- * Whether the sidebar plugin is installed. Its `sidebarRightTabs` service is what proves it: the
- * inject below only fires when that service exists, so the switch for it appears only then.
- */
-let sidebarAvailable = false
+     * Whether the sidebar plugin is installed. Answered by that plugin's own service at render time:
+     * `betterSidebar.registerTab` is what actually puts a card into its 侧边栏内容 list, and the old
+     * `sidebarRightTabs` route is deliberately not used — it is not a path a third-party plugin can take
+     * (dsh-context registers through it and its card stays out of that list).
+     */
+    let sidebarAvailable = false
 /**
  * Whether the sidebar plugin is there. Resolved live (not once at load) so the switch reflects reality
  * whatever order the two plugins happen to load in: no sidebar plugin means there is no sidebar to
