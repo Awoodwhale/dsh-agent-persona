@@ -13,8 +13,8 @@
 │   ├── remote.ts           # ⚙ 生成物：客户端 $mount 的描述符清单，勿手改
 │   └── typert.ts           # ⚙ 生成物：同一份面的清单对象，勿手改
 ├── lib/                    # ⚙ 构建产物，不进 git（.gitignore），由 npm run build 产出
-├── test/personas.test.mjs      # 宿主：134 项断言（纯函数 + 源码审计）
-├── test/client-helpers.test.mjs # 客户端：15 项断言（源码审计）+ 生成产物漂移校验
+├── test/personas.test.mjs      # 宿主：196 项断言（纯函数 + 源码审计 + 用真实 ctx 驱动的 apply）
+├── test/client-helpers.test.mjs # 客户端：116 项断言（源码审计）+ 生成产物漂移校验
 ├── scripts/generate-remote.mjs # 生成器：endpoints.ts → remote.ts / typert.ts
 ├── scripts/install.sh|.ps1     # 安装到某个 profile
 ├── docs/                   # 架构 / 开发 / 设计决策
@@ -28,7 +28,7 @@
 npm install
 npm run build         # generate:remote → tsc → esbuild（产出 lib/）
 npm run typecheck     # 两个 tsconfig 都不报错
-npm test              # 134 + 15 条断言，最后一步校验生成产物没有漂移
+npm test              # 196 + 116 条断言，最后一步校验生成产物没有漂移
 npm run generate:remote   # 只重新生成 src/remote.ts 与 src/typert.ts
 ```
 

@@ -4,44 +4,113 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] - 2026-09-20
 
 ### Added
 
+- **A readable store is protected before it is replaced.** A store file that exists but cannot be read used to
+  look exactly like an empty one, and the next save replaced it. The page now says what happened and why, and
+  the first write copies the original to `personas.json.bak-<timestamp>` before touching it. If the copy fails
+  the write fails with it, so content nothing preserved is never destroyed.
+- **The persona store is no longer writable by tools.** A monotonic `ctx.tools.guard` refuses any call whose
+  arguments point at the store and any shell command that mentions it together with a write feature
+  (`>`, `rm`, `mv`, `cp`, `chmod`, `sed -i`, `tee`, `truncate`, …), while reads (`cat`, `md5`, …) stay allowed.
+  A session running under a persona can therefore no longer rewrite or delete that persona.
+- **导入 / 导出.** Export writes a portable JSON document (no local ids, no interface preferences) and also puts
+  it on the clipboard; import takes a pasted document or a chosen file, previews every persona with its size and
+  reach, and creates them through the same `savePersona` call the page uses, so a document cannot bypass the
+  host's validation. Imported personas are always created **disabled** and appended at the end, and the default
+  slot is never taken over.
+- Source links and the running version beside the settings title: GitHub and npm as two small pills carrying the
+  real brand marks (inlined from simple-icons, `currentColor`, no hardcoded colours), plus the version of the
+  copy actually running. The version comes from the host reading its own `package.json`, so a checkout and an npm
+  install report different things — and the tooltip says which one this is. The same two fields go into the
+  load heartbeat.
+
+### Changed
+
+- **The header spacing follows the host's own rhythm.** The title, description and counts now sit on a uniform
+  12px gap, and the extra 10px margin on the preference row is gone: the counts, the switches and the cards are
+  14px apart, the distance the settings shell itself uses between blocks.
+- The reported test counts are counted rather than written down: both suites wrap `assert` and report what ran,
+  so the number can no longer fall behind the file (196 host assertions, 116 client assertions).
+
+### Fixed
+
+- A note about a preserved store no longer disappears the moment it becomes true: a reload only clears the
+  record for a *fresh* reset, not for the stamp change caused by our own write.
+
+## [0.1.0] - 2026-09-17
+
+### Added
+
+- **Many personas, each scoped independently.** A persona is a first-class record
+  (`id` / `name` / `enabled` / `text` / `targets[]`), and every target is
+  `{ kind: 'workspace' | 'sessionId', match: 'exact' | 'prefix' | 'regex' | 'contains', value }`.
+- **An explicit default persona** (`默认人设`) with a `fallback` flag: it takes every session no reach rule
+  claimed, and only one persona can hold it — marking a new one releases the previous.
+- **Dropdown scope pickers.** The settings page fills its pickers from the host's
+  workspaces and from DSH's own sessions (newest first, with title, working
+  directory and a relative timestamp), so nobody has to type a path or a session
+  id. The two kinds are mutually exclusive per row — switching a row's type clears
+  its value — and "自己输入…" keeps the advanced match modes reachable.
+- **System-prompt injection** as section `agent-persona` at order 1
+  (`DEPLOYMENT_PERSONA_PREFIX + 1`), i.e. above the workspace `AGENTS.md`, with
+  `append` (default) and `replace` injection modes.
 - **A 人设 tab on the conversation page**: which persona the session matched, the system prompt it actually sent
   (rendered and source views), and the full management UI in place.
-- **An explicit default persona** (`默认人设`): it takes every session no reach rule claimed, and only one persona
-  can hold the flag — marking a new one releases the previous.
-- **Interface preferences** — `编辑后自动保存`, `在对话页显示「人设」标签`, `注册到 dsh-better-sidebar` — stored in the
-  persona file's `prefs` field, so they share the data's scope; the browser keeps only a load-time mirror.
 - **A sidebar card** for `dsh-better-sidebar`, registered through that plugin's own service. The switch that
   controls it is **not shown at all** when that plugin is absent.
+- **Interface preferences** — `编辑后自动保存`, `在对话页显示「人设」标签`, `注册到 dsh-better-sidebar` — stored in the
+  persona file's `prefs` field, so they share the data's scope; the browser keeps only a load-time mirror.
+- **Session history**: pick a session, hit the button next to the picker, and read that conversation. Reads are
+  windowed (`sessionHistory({id, offset, events})`) so the log is never read up front: the page shows what it
+  got, reports 已显示 N 条, and only reads the next window when 继续加载 is pressed. Messages are capped at 4000
+  characters, and 展开全文 replaces a single bubble by reading that one event again (`offset: at, events: 1`).
+- **AI rework** (polish / expand / compress / draft) that uses the model DSH itself
+  is set to use, overridable per deployment with `tuneProvider` / `tuneModel`. It
+  only ever produces a proposal.
+- **Search** appears once a profile holds four or more personas and filters on name, workspace title/path and
+  session title/id, with an explicit 「没有匹配「…」的人设」 state.
+- **Drag to reorder**: a grip on each card header drags it to an absolute position (new `reorderPersona` remote
+  method, `reorderPersonas` is the exported pure function); the ⋯ menu's 上移/下移 stay as the keyboard path.
 - **A Schemastery config**: `storePath`, `tuneProvider`, `tuneModel`, validated when the row loads.
 - **TypeScript sources with a build**: `src/**` compiles to `lib/`, and a generator derives the remote artifacts
   (`src/remote.ts`, `src/typert.ts`) from the single endpoint list in `src/endpoints.ts`; `npm test` fails if the
   generated files drift.
+- **One directory for the data**: `$DSH_HOME/dsh-agent-persona/` holds
+  `personas.json` and a `state.json` heartbeat. The data is re-read on every prompt
+  assembly (mtimeNs/size stamp), so an edit applies to the next message.
+- **Zero runtime dependencies** for the host: the client half is bundled by esbuild, the host half is plain ESM,
+  and `npm test` runs both offline suites.
 
 ### Changed
 
-- **A persona with no reach applies nowhere.** It used to act as a catch-all; a place-less persona is a draft now,
-  and where nothing matched the harness prompt stands. `默认人设` is the explicit way to ask for a fallback.
+- **Resolution is specificity-first.** A session-id rule outranks a workspace rule and an exact value outranks a
+  pattern (`targetSpecificity`); list order only breaks ties between equally specific rules. A persona pointed at
+  one exact session therefore beats a persona pointed at the whole directory, whatever the order.
+- **A persona with no reach applies nowhere.** A place-less persona is a draft, and where nothing matched the
+  harness prompt stands; `默认人设` is the explicit way to ask for a fallback.
 - **Replace mode also drops the harness identity line**, not only the deployment's persona line.
+- **Exactly one persona per workspace or session.** A save that claims a place takes it away from the persona
+  that held it (exact values only, reported back to the page), and the pickers label places that are already
+  taken.
+- The collapsed card keeps only what reads at a glance — chevron, state dot, name, state, scope chips — and
+  reordering / duplicating / deleting moved into the card's `⋯` menu.
+- The status line is sticky at the bottom of the page so save/error feedback stays visible while the list
+  scrolls; icon buttons grew from 24px to 28px hit targets.
+- The session picker shows how often each session was talked to (`sessionStats.turns`), beside the short id and
+  age, and sessions are labelled with their DSH title or their first prompt.
+- Renamed the package from `dsh-workspace-persona` to **`dsh-agent-persona`**. Everything it writes now lives in
+  `$DSH_HOME/dsh-agent-persona/`.
 - Display preferences take effect immediately rather than on the next page load: the conversation view and the
   sidebar card are registered and unregistered at runtime.
 
 ### Fixed
 
-- The remote manifest is generated in the shape the mount consumes: an `id` per descriptor, a strict input codec,
-  `parameters: []` for the reads that take none, and the service name `agentPersona`.
-- The default flag survives a store round trip again — the reader no longer drops it — and a save whose payload
-  omits the flag keeps the stored value instead of clearing it.
-- The session view's own draft and dirty check cover the default flag, and its switch no longer calls a method
-  that only the settings component has. Together those made the switch look inert and let a save turn it off.
-
-## [0.1.0] - 2026-09-17
-
-### Fixed
-
+- **跳到最新 did nothing**: the runtime forwarded a hand-written subset of the history options and dropped
+  `tail` / `keep`, so the call degraded to a normal head read while the dialog labelled it as the tail. The
+  forwarding is now an exported, asserted `historyOptions`.
 - 跳到最新 kept a fixed four-message window, so a turn where the agent answered several times pushed the user's
   question out of it. The tail now returns everything from the **last user input** onwards (bounded at 60
   messages while walking).
@@ -49,137 +118,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bubbles show raw Markdown. Messages are now split into bounded Markdown-safe chunks (blank-line boundaries,
   never inside a code fence) and each chunk renders on its own: one awkward chunk degrades with a visible note,
   the rest of the message still renders.
-- `npm test` now also runs a small client-side suite (`test/client-helpers.test.mjs`) that lifts the client's pure
-  helpers out of the source and asserts the splitter is lossless and fence-safe.
-
-- 跳到最新 did nothing: the runtime forwarded a hand-written subset of the history options and dropped ,
-  so the call degraded to a normal head read while the dialog labelled it as the tail. The forwarding is now an
-  exported, asserted .
-### Added
-
-- **展开全文 per bubble.** Every message now carries  (its event index in the log), so a message that was
-  clipped at 1000 characters offers 展开全文: one 
-  read replaces that single bubble with the full text (and 收起全文 puts the short text back without re-reading).
-  Nothing else in the dialog is re-fetched.
-### Changed
-
-- The per-message text cap is 1000 characters (clipping stays markdown-safe), and 跳到最新 no longer appends the
-  rest of the conversation: it walks to the end and replaces the view with the last exchange only, so one click
-  answers "what were we just talking about". 从头看 returns to the sequential view, whose footer states that it
-  reads from the beginning.
-### Fixed
-
-- **Empty sessions are no longer offered.** A session created with a preset but never typed into
-  (`sessionListMetadata.blank`, the same flag the sidebar hides on — found as a 5-event, 0.5 KB,
-  `agentPreset: 'cordis'` session) holds no conversation to give a persona, so the picker drops it and counts it
-  in the hidden tally.
-
-- **Sub-agent and archived sessions no longer appear in the picker.** A sub-agent session (spawned by the
-  model: `origin: 'subagent'` or `delegationDepth > 0`) and an archived one cannot be opened or typed into
-  from the sidebar, so listing them invited personas that could never apply. Archived ids come from the
-  workspace registry, falling back to the workspace store file. The page reports how many were hidden, so a
-  missing session is never a mystery.
-
 - **Sessions could not be read at all**: `sessionPersistence.open(id, access)` takes the access mode as a
   second, required argument; the reader called `open(id)` and every candidate failed, so the conversation
   dialog always reported "no reader". It now opens with `'read'` (never taking write ownership) and retries
   id-only signatures for version tolerance.
-
-### Changed
-
-- **Resolution is specificity-first.** A session-id rule now outranks a workspace rule and an exact value
-  outranks a pattern (`targetSpecificity`); list order only breaks ties between equally specific rules. A persona
-  pointed at one exact session therefore beats a persona pointed at the whole directory, whatever the order.
-
-- The session picker shows how often each session was talked to (`sessionStats.turns` from the same
-  projection read as the title), beside the short id and age; picker menus are widened to fit that row.
-
-- The settings section paints its title and description (and a skeleton card list) before any host call
-  resolves, instead of showing a bare 「加载中…」; a mount race with the remote namespace retries briefly rather
-  than flashing an error.
-
-- Renamed the package from `dsh-workspace-persona` to **`dsh-agent-persona`** (settings page: 「Agent人设」).
-  Everything it writes now lives in `$DSH_HOME/dsh-agent-persona/`.
-- The collapsed card keeps only what reads at a glance — chevron, state dot, name, state, scope chips — and
-  reordering / duplicating / deleting moved into the card's `⋯` menu.
-
-### Added
-
-- **Exactly one persona per workspace or session.** A save that claims a place takes it away from the persona
-  that held it (exact values only, reported back to the page), and the pickers label places that are already
-  taken.
-- **Injection modes** `append` (default) and `replace`, implemented by listening to the
-  `system-prompt/assemble` waterfall and dropping the deployment's own `deployment:persona-prefix` line for
-  `replace`. A preset or subagent persona that shadowed the section is never overwritten.
-- **Session history**: pick a session, hit the button next to the picker, and read that conversation. Reads are
-  windowed (`sessionHistory({id, offset, events})`) so the log is never read up front: the page shows what it
-  got, reports 已显示 N 条, and only reads the next window when 继续加载 is pressed. Messages are capped at 4000
-  characters. Picker rows carry a short session id and the session's age on the right.
-- **Search** appears once a profile holds four or more personas and filters on name, workspace title/path and
-  session title/id, with an explicit 「没有匹配「…」的人设」 state.
-- **Drag to reorder**: a grip on each card header drags it to an absolute position (new `reorderPersona` remote
-  method, `reorderPersonas` is the exported pure function); the ⋯ menu's 上移/下移 stay as the keyboard path,
-  and dragging is disabled while a search filter is active so a drop target is never ambiguous.
-- **Conflicts are visible**: a persona whose exact row would be shadowed by an *earlier* persona's prefix /
-  regex / contains row gets a 「可能被覆盖」 tag (hover explains which rule wins), plus a summary line above the
-  list. Exact duplicates never reach this state — saving takes the claim over instead.
-- **The save shortcut is visible**: a ⌘S / Ctrl+S key chip sits next to the save button and the button carries
-  the same hint in its tooltip.
-- The persona counts are two tags — 「N 条人设」 and a success-toned 「N 条在用」 — instead of a sentence in the
-  meta line, and the store path moved to the right of them.
-- **Unsaved changes are visible**: the open card carries a 未保存 tag while its draft differs from what is
-  stored, and switching cards or collapsing reports 「改动没有保存」 in the status line instead of dropping it
-  silently.
-- The status line is sticky at the bottom of the page so save/error feedback stays visible while the list
-  scrolls; icon buttons grew from 24px to 28px hit targets.
-- The section header now matches the shipped settings pages exactly: an `<h2>` title at 18px/600, a 13px
-  `p` intro in the muted label colour, no leading icon (the count moved into the meta line). Measured side by
-  side against the official 「Agent 预设」 page in the same DOM: identical font size, weight and colour.
-- The page is titled with the Agent-preset glyph (the same one the settings shell uses for 「Agent 预设」); the
-  settings **nav** icon itself is the shell's and cannot be set by a plugin — `settings.section` accepts only
-  `id` / `order` / `label`, and the shell falls back to one generic glyph for every id it does not ship.
-- Creating a persona moved out of the page's top-right corner into a dashed **新建人设** row at the end of the
-  list (the conventional place for an "add" affordance), keyboard reachable via Enter/Space; the header is now
-  just the title and the count.
-- A collapsed card shows its scope on a **second line**, workspaces and sessions apart, with human names
-  (workspace titles, session titles) instead of raw paths; the picker marks a claimed target as 当前人设 when it
-  belongs to the persona being edited, instead of appearing to be someone else's.
-- The conversation dialog is a two-sided chat (your input right, the agent left, both in bubbles) and hides
-  plugin-injected user-side content — `AGENTS.md` (13k chars in a real session), runtime snapshots, the skill
+- **Empty sessions are no longer offered.** A session created with a preset but never typed into
+  (`sessionListMetadata.blank`, the same flag the sidebar hides on) holds no conversation to give a persona, so
+  the picker drops it and counts it in the hidden tally.
+- **Sub-agent and archived sessions no longer appear in the picker.** A sub-agent session (spawned by the
+  model: `origin: 'subagent'` or `delegationDepth > 0`) and an archived one cannot be opened or typed into from
+  the sidebar, so listing them invited personas that could never apply. The page reports how many were hidden.
+- The remote manifest is generated in the shape the mount consumes: an `id` per descriptor, a strict input codec,
+  `parameters: []` for the reads that take none, and the service name `agentPersona`.
+- The default flag survives a store round trip again — the reader no longer drops it — and a save whose payload
+  omits the flag keeps the stored value instead of clearing it.
+- The session view's own draft and dirty check cover the default flag, and its switch no longer calls a method
+  that only the settings component has. Together those made the switch look inert and let a save turn it off.
+- The conversation dialog hides plugin-injected user-side content — `AGENTS.md`, runtime snapshots, the skill
   catalog, goal rounds — reporting only 「已隐藏 N 条插件注入内容」.
-- The scope pickers can go back from 「自己输入…」 to the list, and the match mode only appears in that
-  manual mode.
-- Session entries in the picker are labelled with their DSH title, and with the session's first prompt (or
-  its latest prompt) when no title exists yet — all three come out of a **single read** of DSH's projection
-  cache. The dropdown never touches a session log: those are 2.6x-5.8x larger and zstd-compressed
-  append-only files that cannot be seeked.
 
-
-### Added
-
-- **Many personas, each scoped independently.** A persona is a first-class record
-  (`id` / `name` / `enabled` / `text` / `targets[]`), and every target is
-  `{ kind: 'workspace' | 'sessionId', match: 'exact' | 'prefix' | 'regex' | 'contains', value }`.
-- **Dropdown scope pickers.** The settings page fills its pickers from the host's
-  workspaces and from DSH's own sessions (newest first, with title, working
-  directory and a relative timestamp), so nobody has to type a path or a session
-  id. The two kinds are mutually exclusive per row — switching a row's type clears
-  its value — and "自己输入…" keeps the advanced match modes reachable.
-- **Resolution rules**: list order is priority (first match wins), rows inside one
-  persona are OR-ed, a persona with no rows is the default persona, a disabled
-  persona is skipped, and a matching persona with an empty text means "no persona
-  here".
-- **System-prompt injection** as section `agent-persona` at order 1
-  (`DEPLOYMENT_PERSONA_PREFIX + 1`), i.e. above the workspace `AGENTS.md`.
-- **One directory for the data**: `$DSH_HOME/dsh-agent-persona/` holds
-  `personas.json` and a `state.json` heartbeat. The data is re-read on every prompt
-  assembly (mtimeNs/size stamp), so an edit applies to the next message.
-- **AI rework** (polish / expand / compress / draft) that uses the model DSH itself
-  is set to use, overridable per deployment with `tuneProvider` / `tuneModel`. It
-  only ever produces a proposal.
-- **Zero runtime dependencies**: a plain ESM host half plus a hand-written
-  `__ModuleLoader__` client half (no build step), with 89 offline assertions in
-  `npm test`.
-
-[Unreleased]: https://github.com/awoodwhale/dsh-agent-persona/compare/v0.1.0...HEAD
+[0.1.1]: https://github.com/awoodwhale/dsh-agent-persona/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/awoodwhale/dsh-agent-persona/releases/tag/v0.1.0

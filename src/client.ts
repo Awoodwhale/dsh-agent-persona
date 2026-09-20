@@ -102,6 +102,8 @@ window.__ModuleLoader__.load({
 
     /** Interface preferences: where the persona page shows up, and whether edits save themselves. */
     const PREF_KEY = 'dsh-agent-persona.prefs'
+    /** Match vocabulary for import validation; the host owns the authoritative list in `targetMatches`. */
+    const MATCH_KINDS = ['exact', 'prefix', 'regex', 'contains']
     /**
      * Brand marks for the project links, taken from simple-icons (CC0 data). They are inlined rather than
      * imported: the component library ships no brand glyphs, and bundling the whole icon set for two marks
@@ -119,6 +121,70 @@ window.__ModuleLoader__.load({
       { id: 'github', label: 'GitHub', icon: MarkGithub, href: 'https://github.com/Awoodwhale/dsh-agent-persona', title: '项目源地址：GitHub 仓库' },
       { id: 'npm', label: 'npm', icon: MarkNpm, href: 'https://www.npmjs.com/package/dsh-agent-persona', title: 'npm 包页面' },
     ]
+
+    /**
+     * Portable form of the persona list. Ids stay out because they are local handles — importing is meant to
+     * add personas, not to overwrite the ones this machine already has — and interface preferences stay out
+     * because they describe this browser, not the content.
+     */
+    const exportDocument = (personas) => ({
+      plugin: 'dsh-agent-persona',
+      schema: 2,
+      exportedAt: new Date().toISOString(),
+      personas: (personas ?? []).map((persona) => ({
+        name: persona.name,
+        enabled: persona.enabled === true,
+        mode: persona.mode === 'replace' ? 'replace' : 'append',
+        text: persona.text ?? '',
+        targets: (persona.targets ?? []).map((target) => ({ kind: target.kind, match: target.match, value: target.value })),
+      })),
+    })
+
+    /**
+     * Read a document in the exported shape. Anything unusable is reported rather than quietly dropped: a
+     * rule that does not survive validation changes which sessions a persona reaches, so the count travels on.
+     */
+    const parseImportDocument = (text) => {
+      let parsed
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        throw new Error('不是合法的 JSON')
+      }
+      const list = Array.isArray(parsed) ? parsed : parsed?.personas
+      if (!Array.isArray(list)) throw new Error('没有找到 personas 数组')
+      const personas = list.map((raw, index) => {
+        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+        const rawTargets = Array.isArray(raw.targets) ? raw.targets : []
+        const targets = rawTargets.filter((target) => target !== null && typeof target === 'object'
+          && (target.kind === 'workspace' || target.kind === 'sessionId')
+          && MATCH_KINDS.includes(target.match)
+          && typeof target.value === 'string')
+          .map((target) => ({ kind: target.kind, match: target.match, value: target.value }))
+        return {
+          name: typeof raw.name === 'string' && raw.name.trim() !== '' ? raw.name.trim() : `导入的人设 ${index + 1}`,
+          text: typeof raw.text === 'string' ? raw.text : '',
+          mode: raw.mode === 'replace' ? 'replace' : 'append',
+          enabled: raw.enabled === true,
+          targets,
+          droppedTargets: rawTargets.length - targets.length,
+        }
+      }).filter((item) => item !== null)
+      if (personas.length === 0) throw new Error('文档里没有可用的人设')
+      return personas
+    }
+
+    /** Hand a generated file to the browser: no server round trip, no new dependency. */
+    const downloadText = (filename, text) => {
+      const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 0)
+    }
     const DEFAULT_PREFS = { autosave: false, showTab: true, showSidebar: true }
     /**
      * Whether the sidebar plugin is installed. Answered by that plugin's own service at render time:
@@ -266,6 +332,22 @@ const readPrefs = () => {
 .wsp-card:not(.wsp-card-open):hover { border-color: var(--wsp-line-strong); background: var(--wsp-surface-2); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
 .wsp-card-open { border-color: var(--wsp-line-strong); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.04); }
 .wsp-prefs { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+/* A store that could not be read, and the note left behind after the original was preserved. */
+.wsp-alert { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 8px; font-size: 12px; line-height: 1.6; }
+.wsp-alert strong { font-size: 12.5px; }
+.wsp-alert code { font-family: var(--wsp-mono); font-size: 11px; word-break: break-all; }
+.wsp-alert-reset { color: var(--wsp-warn, #d29922); border: 1px solid color-mix(in srgb, var(--wsp-warn, #d29922) 45%, transparent); background: color-mix(in srgb, var(--wsp-warn, #d29922) 12%, transparent); }
+.wsp-alert-backed-up { color: var(--wsp-muted); border: 1px solid var(--wsp-line); background: var(--wsp-surface-2); }
+.wsp-transfer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wsp-import { display: flex; flex-direction: column; gap: 10px; }
+.wsp-import-text { width: 100%; min-height: 120px; padding: 8px 10px; border: 1px solid var(--wsp-line); border-radius: 6px; background: var(--wsp-surface-2); color: var(--wsp-text); font-family: var(--wsp-mono); font-size: 11.5px; line-height: 1.5; resize: vertical; }
+.wsp-import-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--wsp-muted); }
+.wsp-import-replace { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.wsp-import-error { color: var(--wsp-danger, #f85149); font-size: 12px; }
+.wsp-import-preview { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; max-height: 220px; overflow-y: auto; }
+.wsp-import-preview li { display: flex; align-items: baseline; gap: 10px; padding: 5px 8px; border: 1px solid var(--wsp-line-soft); border-radius: 6px; background: var(--wsp-surface-2); font-size: 12px; }
+.wsp-import-name { font-weight: 500; color: var(--wsp-text); }
+.wsp-import-meta { color: var(--wsp-muted-2); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .wsp-prefs .wsp-switch-text { font-size: 12.5px; }
 .wsp-row-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px 3px; min-height: 44px; box-sizing: border-box; flex-wrap: wrap; border-radius: 12px 12px 0 0; }
 /* 展开后的卡片：头部吸顶，保存按钮就在手边 */
@@ -1060,6 +1142,7 @@ const since = (timestamp) => {
           busy: '',
           error: '',
           status: '',
+          transfer: undefined,
         }
         this.mounted = false
         this.rootRef = React.createRef()
@@ -1533,6 +1616,95 @@ const since = (timestamp) => {
           })
         } catch (error) {
           this.onChange({ busy: '', status: `保存失败：${String((error && error.message) || error)}` })
+        }
+      }
+
+      /** Write the portable document to a file, and keep a copy on the clipboard for pasting into chat. */
+      async exportPersonas() {
+        const view = this.state.view
+        if (view === undefined) return
+        const document = exportDocument(view.personas)
+        const text = `${JSON.stringify(document, null, 2)}\n`
+        const stamp = new Date().toISOString().slice(0, 10)
+        downloadText(`dsh-agent-persona-${stamp}.json`, text)
+        let copied = false
+        try {
+          await navigator.clipboard.writeText(text)
+          copied = true
+        } catch {
+          copied = false
+        }
+        this.onChange({ status: `已导出 ${document.personas.length} 条人设${copied ? '（内容也已复制到剪贴板）' : ''}` })
+      }
+
+      openImport() {
+        this.onChange({ transfer: { text: '', preview: undefined, error: '', busy: false, replace: false } })
+      }
+
+      closeImport() {
+        this.onChange({ transfer: undefined })
+      }
+
+      previewImport() {
+        const transfer = this.state.transfer
+        if (transfer === undefined) return
+        try {
+          const preview = parseImportDocument(transfer.text)
+          this.onChange({ transfer: { ...transfer, preview, error: '' } })
+        } catch (error) {
+          this.onChange({ transfer: { ...transfer, preview: undefined, error: String((error && error.message) || error) } })
+        }
+      }
+
+      /**
+       * Import through the same call the page uses to save, so every document passes the host's own
+       * validation. Each persona arrives as a new, disabled entry at the end of the list: importing can
+       * never take a target away from a persona this machine already has, and never claims the default slot.
+       */
+      async applyImport() {
+        const api = this.api()
+        const transfer = this.state.transfer
+        if (api === undefined || transfer === undefined || transfer.preview === undefined) return
+        const replace = transfer.replace === true
+        this.onChange({ transfer: { ...transfer, busy: true, error: '' } })
+        try {
+          if (replace) {
+            for (const persona of this.state.view?.personas ?? []) {
+              this.unwrap(await api.deletePersona({ id: persona.id }))
+            }
+          }
+          let view
+          let dropped = 0
+          for (const item of transfer.preview) {
+            dropped += item.droppedTargets
+            view = this.unwrap(await api.savePersona({
+              name: item.name,
+              enabled: false,
+              mode: item.mode,
+              text: item.text,
+              targets: item.targets,
+            }))
+          }
+          this.onChange({
+            view,
+            transfer: undefined,
+            status: `已导入 ${transfer.preview.length} 条人设（全部停用）${replace ? '，并替换了原有列表' : ''}${dropped > 0 ? `；有 ${dropped} 条规则没通过校验被略过` : ''}`,
+          })
+        } catch (error) {
+          this.onChange({ transfer: { ...transfer, busy: false, error: `导入失败：${String((error && error.message) || error)}` } })
+        }
+      }
+
+      async pickImportFile(event) {
+        const file = event?.target?.files?.[0]
+        if (file === undefined || file === null) return
+        const text = await file.text()
+        const transfer = this.state.transfer ?? { preview: undefined, error: '', busy: false, replace: false }
+        try {
+          const preview = parseImportDocument(text)
+          this.onChange({ transfer: { ...transfer, text, preview, error: '' } })
+        } catch (error) {
+          this.onChange({ transfer: { ...transfer, text, preview: undefined, error: String((error && error.message) || error) } })
         }
       }
 
@@ -2391,7 +2563,95 @@ const since = (timestamp) => {
           ]),
         }, h('div', { className: 'wsp-card-note' }, `名称：${pendingDelete.name}　·　${pendingDelete.chars} 字　·　${pendingDelete.targets?.length ?? 0} 条适用范围`))
 
-        return h('div', rootProps, [header, prefsRow, searchRow, hiddenNote, conflictNotice, h('div', { className: 'wsp-cards', key: 'cards' }, cards), status, historyModal, confirmModal])
+        // A store that could not be read is worth interrupting for: the page shows an empty list, which
+        // otherwise looks exactly like "I have not created anything yet", and the next save would replace
+        // the file. The note says what happened, where the original is, and what the next save will do.
+        const health = view?.storeHealth
+        const healthNote = health === undefined || health.status === 'ok' ? null : h('div', {
+          className: `wsp-alert wsp-alert-${health.status}`,
+          key: 'health',
+          role: 'status',
+        }, health.status === 'reset'
+          ? [
+            h('strong', { key: 't' }, '人设文件读不出来，已从空存储开始'),
+            h('span', { key: 'r' }, `原因：${health.reason ?? '未知'}`),
+            h('code', { key: 'p' }, health.path),
+            h('span', { key: 'w' }, '现在保存不会丢掉它：写入之前会先把原文件复制到同目录的 personas.json.bak-<时间戳>。'),
+          ]
+          : [
+            h('strong', { key: 't' }, '已保留读不出来的人设文件'),
+            h('span', { key: 'r' }, '本次保存之前已把原文件复制到：'),
+            h('code', { key: 'p' }, health.backupPath ?? ''),
+            h('span', { key: 'w' }, '需要恢复时，把这份备份复制回原名并重启 dsh web 即可。'),
+          ])
+
+        const transfer = state.transfer
+        const transferRow = h('div', { className: 'wsp-transfer', key: 'transfer' }, [
+          h(Button, { key: 'export', variant: 'outline', size: 'sm', disabled: view === undefined, onClick: () => void this.exportPersonas() }, '导出人设'),
+          h(Button, { key: 'import', variant: 'outline', size: 'sm', disabled: view === undefined, onClick: () => this.openImport() }, '导入人设'),
+          h('span', { className: 'wsp-caption', key: 'c' }, '导出为 JSON（不含本机 id 与界面偏好）；导入一律新建并停用，不影响现有会话'),
+        ])
+
+        const importModal = transfer === undefined ? null : h(Modal, {
+          key: 'import',
+          className: 'wsp-import-modal',
+          contentClassName: 'wsp-import-content',
+          open: true,
+          onClose: () => this.closeImport(),
+          title: '导入人设',
+          description: '粘贴导出的 JSON，或选择一个 .json 文件。导入的人设会追加到列表末尾、一律停用，默认人设不会被替换。',
+          footer: h('div', { className: 'wsp-form-actions' }, [
+            h('span', { className: 'wsp-caption', key: 'c' }, transfer.preview === undefined
+              ? '先预览，再决定是否导入'
+              : `将导入 ${transfer.preview.length} 条（全部停用）`),
+            h('span', { className: 'wsp-grow', key: 'g' }),
+            h(Button, { key: 'cancel', variant: 'ghost', size: 'sm', disabled: transfer.busy === true, onClick: () => this.closeImport() }, '取消'),
+            h(Button, { key: 'preview', variant: 'outline', size: 'sm', disabled: transfer.busy === true, onClick: () => this.previewImport() }, '预览'),
+            h(Button, {
+              key: 'apply',
+              variant: 'primary',
+              size: 'sm',
+              disabled: transfer.busy === true || transfer.preview === undefined,
+              onClick: () => void this.applyImport(),
+            }, transfer.busy === true ? '导入中…' : '确认导入'),
+          ]),
+        }, h('div', { className: 'wsp-import' }, [
+          h('textarea', {
+            key: 'text',
+            className: 'wsp-import-text',
+            spellCheck: false,
+            placeholder: '在这里粘贴 JSON，或点下面的「选择文件…」',
+            value: transfer.text ?? '',
+            onChange: (event) => this.onChange({ transfer: { ...transfer, text: event.target.value, preview: undefined, error: '' } }),
+          }),
+          h('div', { className: 'wsp-import-row', key: 'row' }, [
+            h('input', {
+              key: 'file',
+              className: 'wsp-import-file',
+              type: 'file',
+              accept: 'application/json,.json',
+              onChange: (event) => void this.pickImportFile(event),
+            }),
+            transfer.preview === undefined ? null : h('label', { className: 'wsp-import-replace', key: 'replace' }, [
+              h('input', {
+                type: 'checkbox',
+                checked: transfer.replace === true,
+                onChange: (event) => this.onChange({ transfer: { ...transfer, replace: event.target.checked } }),
+              }),
+              h('span', {}, `同时删除本机现有 ${view?.personas?.length ?? 0} 条人设（整机恢复用，不可撤销）`),
+            ]),
+          ]),
+          transfer.error === '' || transfer.error === undefined
+            ? null
+            : h('div', { className: 'wsp-import-error', key: 'error' }, transfer.error),
+          transfer.preview === undefined ? null : h('ul', { className: 'wsp-import-preview', key: 'preview' },
+            transfer.preview.slice(0, 40).map((item, index) => h('li', { key: `p${index}` }, [
+              h('span', { className: 'wsp-import-name' }, item.name),
+              h('span', { className: 'wsp-import-meta' }, `${item.text.length} 字 · ${item.targets.length} 条适用范围${item.droppedTargets > 0 ? `（${item.droppedTargets} 条规则没通过校验，已略过）` : ''}`),
+            ]))),
+        ]))
+
+        return h('div', rootProps, [header, healthNote, prefsRow, transferRow, searchRow, hiddenNote, conflictNotice, h('div', { className: 'wsp-cards', key: 'cards' }, cards), status, historyModal, confirmModal, importModal])
       }
     }
 

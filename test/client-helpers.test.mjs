@@ -10,6 +10,16 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+// Count the assertions that actually run, so the reported number cannot drift behind the file.
+let assertions = 0
+for (const name of ['equal', 'deepEqual', 'ok', 'match', 'notEqual', 'throws']) {
+  const original = assert[name]
+  assert[name] = (...args) => {
+    assertions += 1
+    return original(...args)
+  }
+}
+
 const source = readFileSync(new URL('../src/client.ts', import.meta.url), 'utf8')
 
 // ── the renderer and its required props
@@ -255,4 +265,19 @@ assert.ok(hostSourceForVersion.includes('pluginVersion: PLUGIN_INFO.version'), '
 assert.ok(hostSourceForVersion.includes('installOrigin: PLUGIN_INFO.origin'), 'along with whether this copy came from npm or a checkout')
 assert.equal(/pluginVersion: '0\./.test(hostSourceForVersion), false, 'never a version string baked into the source')
 
-console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
+// ── the page explains a store it could not read, and offers the two transfer actions without a new
+// endpoint: export is built from the view the page already holds, and import reuses savePersona so every
+// document passes the host's own validation instead of a second, weaker reader on this side.
+assert.ok(source.includes("health.status === 'reset'"), 'the page distinguishes a reset store from an empty one')
+assert.ok(source.includes('已保留读不出来的人设文件'), 'and reports where the original was preserved')
+assert.ok(source.includes('personas.json.bak-<时间戳>'), 'and tells the user what the next save will do')
+assert.ok(source.includes('const exportDocument = (personas) => ({'), 'export builds a portable document')
+assert.equal(/exportDocument[\s\S]{0,600}?id: persona\.id/.test(source), false, 'which leaves the local ids out')
+assert.ok(source.includes('URL.createObjectURL(new Blob('), 'and hands it to the browser as a download')
+assert.ok(source.includes('const parseImportDocument = (text) => {'), 'import parses the document on this side')
+assert.ok(source.includes("throw new Error('不是合法的 JSON')"), 'and says so when it is not JSON')
+assert.ok(source.includes('await api.savePersona({\n              name: item.name,'), 'while the write itself goes through savePersona')
+assert.ok(source.includes('enabled: false,\n              mode: item.mode,'), 'every imported persona arrives disabled')
+assert.equal(/importPersonas|api\.importPersonas/.test(source), false, 'and no new endpoint was invented for it')
+
+console.log(JSON.stringify({ ok: true, clientChecks: assertions }))

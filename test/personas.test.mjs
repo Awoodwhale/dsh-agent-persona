@@ -5,9 +5,20 @@
  * Node built-ins only, no DSH needed — run with `npm test`.
  */
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+
+// Count the assertions that actually run. The count used to be a literal, so adding assertions silently
+// left it behind — a number that cannot be wrong about how much was checked is worth one small wrapper.
+let assertions = 0
+for (const name of ['equal', 'deepEqual', 'ok', 'match', 'notEqual', 'throws']) {
+  const original = assert[name]
+  assert[name] = (...args) => {
+    assertions += 1
+    return original(...args)
+  }
+}
 
 const home = mkdtempSync(join(tmpdir(), 'wsp-'))
 process.env.DSH_HOME = home
@@ -17,7 +28,7 @@ const heartbeatPath = join(stateDir, 'state.json')
 
 const mod = await import(new URL('../lib/index.js', import.meta.url).href)
 const { collectLastSystemPrompt, sessionPromptFrom } = mod
-const { applyPersonaMode, clipMarkdown, collectSessionHistory, historyOptions, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
+const { applyPersonaMode, backupStamp, backupStoreFile, clipMarkdown, collectSessionHistory, historyOptions, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
 
 const WS = '/tmp/ws/web-app'
 const OTHER = '/tmp/ws/docs'
@@ -377,10 +388,12 @@ writeFileSync(storePath, JSON.stringify({
 }))
 const sections = []
 const warnings = []
+const guards = []
 let assembleWaterfall
 const fakeCtx = {
   logger: { info: () => {}, warn: (...args) => warnings.push(String(args[0])) },
   systemPrompt: { getSectionOrder: () => 0, section: (entry) => { sections.push(entry); return () => {} } },
+  tools: { guard: (fn) => { guards.push(fn); return () => {} } },
   effect: (fn) => fn(),
   on: (name, handler) => {
     if (name === 'system-prompt/assemble') assembleWaterfall = handler
@@ -397,6 +410,31 @@ assert.equal(section.text({ agent: { session: { header: { id: 'im-bot-1a2b-g3', 
 assert.equal(section.text({ agent: { session: { header: { id: 'session-9', cwd: OTHER } } } }), '', 'an empty persona silences')
 assert.equal(section.text({ agent: { session: { header: { id: 'session-9', cwd: '/tmp/elsewhere' } } } }), '', 'a persona with no targets injects nothing')
 assert.equal(section.text({}), '', 'and an agent-less assembly gets the harness prompt')
+
+// ── the store is this plugin's instruction source, so exactly one monotonic guard must protect it
+assert.equal(guards.length, 1, 'the store guard is registered through the effect')
+const guard = guards[0]
+const refusal = guard({ name: 'write', arguments: { path: storePath, content: 'x' } })
+assert.equal(typeof refusal, 'string', 'a tool call pointed at the store is refused')
+assert.ok(refusal.includes('人设存储'), 'and the reason says which file is protected')
+assert.equal(guard({ name: 'write', arguments: { path: `${dirname(storePath)}/notes.md` } }), undefined, 'a sibling file stays writable')
+assert.equal(guard({ name: 'write', arguments: { path: '/tmp/anything.md' } }), undefined, 'unrelated paths stay writable')
+assert.equal(guard({ name: 'bash', arguments: { command: `cat ${storePath}` } }), undefined, 'reading the store stays allowed')
+assert.equal(typeof guard({ name: 'bash', arguments: { command: `rm -f ${storePath}` } }), 'string', 'removing the store is refused')
+assert.equal(typeof guard({ name: 'bash', arguments: { command: `jq . ${storePath} > /tmp/c.json` } }), 'string', 'a redirect that mentions the store is refused')
+assert.equal(typeof guard({ name: 'edit', arguments: { file_path: storePath, old: 'a', new: 'b' } }), 'string', 'and so is an edit')
+
+// ── a file that exists but cannot be used must be preserved before the first write replaces it
+assert.equal(backupStamp(new Date('2026-09-20T08:12:34')), '20260920-081234', 'the backup stamp is filename-safe local time')
+const salvageDir = mkdtempSync(join(tmpdir(), 'wsp-salvage-'))
+const salvageStore = join(salvageDir, 'personas.json')
+const unreadable = '{"not": "a persona store"}\n'
+writeFileSync(salvageStore, unreadable)
+const salvaged = backupStoreFile(salvageStore, backupStamp(new Date('2026-09-20T08:12:34')))
+assert.ok(salvaged.endsWith('personas.json.bak-20260920-081234'), 'the copy lands beside the store with a stamp')
+assert.equal(readFileSync(salvaged, 'utf8'), unreadable, 'the copy holds the original bytes')
+assert.equal(statSync(salvaged).mode & 0o777, 0o600, 'and carries the same restrictive mode')
+assert.equal(readFileSync(salvageStore, 'utf8'), unreadable, 'the original file is left where it was')
 
 const beat = JSON.parse(readFileSync(heartbeatPath, 'utf8'))
 assert.equal(beat.storePath, storePath, 'all files live in the plugin directory')
@@ -493,6 +531,24 @@ assert.deepEqual(unimplemented, [], `exposed methods with no service implementat
 assert.ok(exposedNames.length >= 10, `and the audit found the exposed methods (${exposedNames.length})`)
 assert.ok(exposedNames.includes('sessionPrompt'), 'the persona view endpoint is exposed')
 
+// ── every write goes through one commit path, and that path preserves an unreadable store first:
+// if a write could reach persist() directly, the backup could be skipped and the file silently replaced
+assert.equal((hostSource.match(/commit\(current\)/g) ?? []).length, 6, 'all six write sites commit through the shared path')
+assert.equal(/persist\(current, storePath\)/.test(hostSource), false, 'and none of them writes directly')
+const commitAt = hostSource.indexOf('const commit = (next) => {')
+const commitBody = hostSource.slice(commitAt, hostSource.indexOf('\n  }\n', commitAt))
+assert.ok(commitAt > 0, 'the commit path exists')
+assert.ok(commitBody.indexOf('backupStoreFile(') > 0, 'a pending reset is preserved inside it')
+assert.ok(commitBody.indexOf('backupStoreFile(') < commitBody.indexOf('persist(next'), 'and the copy happens before the write')
+assert.ok(hostSource.includes('storeHealth: storeHealth()'), 'the view reports the store state so the page can explain itself')
+assert.ok(hostSource.includes('reset: { reason:'), 'a failed load carries a reason for the page to show')
+assert.ok(hostSource.includes('ctx.effect(() => ctx.tools.guard('), 'the guard is registered through the effect, so unloading removes it')
+// Our own write moves the store stamp, which triggers a reload — that reload must not erase the record of
+// where the original went, or the page loses the note the moment it becomes true.
+const reloadAt = hostSource.indexOf('const reload = () => {')
+const reloadBody = hostSource.slice(reloadAt, hostSource.indexOf('\n    }\n', reloadAt))
+assert.ok(/if \(loaded\.reset !== undefined\)\s*\n?\s*resetBackup = ''/.test(reloadBody), 'a reload only clears the backup record for a fresh reset')
+
 
 // ── the default persona is the opt-in fallback: it applies when nothing claimed a position, only one
 // can hold the flag, and without one the harness prompt stands
@@ -560,7 +616,7 @@ assert.deepEqual(mod.normalizePrefs({ showTab: 'yes', autosave: 1, showSidebar: 
 
 console.log(JSON.stringify({
   ok: true,
-  checks: 134,
+  checks: assertions,
   section: { name: section.name, order: section.order },
   stateDir,
 }))

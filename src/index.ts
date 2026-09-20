@@ -50,10 +50,10 @@ import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 
 import Schema from '@deepseek-ai/schemastery'
 import { RPC_ENDPOINTS } from './endpoints.js'
-import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 
 export const name = 'agent-persona'
 /**
@@ -65,7 +65,7 @@ export const Config = Schema.object({
   storePath: Schema.string().default(''),
 })
 
-export const inject = ['systemPrompt', 'connection', 'webServer']
+export const inject = ['systemPrompt', 'connection', 'webServer', 'tools']
 
 const DSH_HOME = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 /** Everything this plugin writes lives under one directory of its own. */
@@ -187,19 +187,28 @@ export const normalizePrefs = (raw) => ({
   showSidebar: raw?.showSidebar !== false,
 })
 
+/**
+ * Read the store. A missing file is a normal first run and stays silent; a file that exists but cannot be
+ * used is a reset, and that fact travels back to the caller so the first write can preserve the file before
+ * replacing it.
+ */
 const loadStore = (storePath, warn) => {
   let parsed
   try {
     parsed = JSON.parse(readFileSync(storePath, 'utf8'))
   } catch (error) {
-    if (error?.code !== 'ENOENT') warn(`could not read ${storePath}; starting from an empty store`, error)
-    return emptyStore()
+    if (error?.code === 'ENOENT') return { store: emptyStore(), reset: undefined }
+    warn(`could not read ${storePath}; starting from an empty store`, error)
+    return { store: emptyStore(), reset: { reason: String(error?.message ?? error), path: storePath } }
   }
   if (parsed === null || typeof parsed !== 'object' || !Array.isArray(parsed.personas)) {
     warn(`${storePath} is not a persona store; starting from an empty one`)
-    return emptyStore()
+    return { store: emptyStore(), reset: { reason: '文件内容不是人设存储（没有 personas 数组）', path: storePath } }
   }
-  return { version: STORE_VERSION, personas: parsed.personas.map(normalizePersona), prefs: normalizePrefs(parsed.prefs) }
+  return {
+    store: { version: STORE_VERSION, personas: parsed.personas.map(normalizePersona), prefs: normalizePrefs(parsed.prefs) },
+    reset: undefined,
+  }
 }
 
 const persist = (store, storePath) => {
@@ -207,6 +216,72 @@ const persist = (store, storePath) => {
   const tmp = `${storePath}.tmp-${process.pid}`
   writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 })
   renameSync(tmp, storePath)
+}
+
+/** Filename-safe local timestamp for a store backup. */
+export const backupStamp = (now = new Date()) => {
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+}
+
+/**
+ * Copy the store aside before it is overwritten for the first time after a failed load. An exception here
+ * has to stop the write: replacing content we could not preserve is the one outcome this exists to prevent.
+ */
+export const backupStoreFile = (storePath, stamp) => {
+  const backupPath = `${storePath}.bak-${stamp}`
+  copyFileSync(storePath, backupPath)
+  chmodSync(backupPath, 0o600)
+  return backupPath
+}
+
+/** Write features that turn "mentions the store" into "writes the store" inside one shell command. */
+const STORE_WRITE_MARKERS = ['>', 'rm ', 'rm\t', 'mv ', 'cp ', 'chmod', 'chflags', 'truncate', 'sed -i', 'tee ', 'write(', 'unlink(', 'rename(']
+
+const STORE_REFUSAL = '人设存储由 agent-persona 插件管理：工具不能写入或删除它。需要修改人设时，请让用户在「设置 → Agent 人设」里操作。'
+
+/** Every string nested anywhere in a tool call's arguments, to a bounded depth. */
+const stringsIn = (value, out = [], depth = 0) => {
+  if (depth > 6 || value === null || value === undefined) return out
+  if (typeof value === 'string') {
+    out.push(value)
+    return out
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) stringsIn(item, out, depth + 1)
+    return out
+  }
+  if (typeof value === 'object') {
+    for (const item of Object.values(value)) stringsIn(item, out, depth + 1)
+    return out
+  }
+  return out
+}
+
+/**
+ * The store is this plugin's own instruction source, so a session running under a persona must not be able
+ * to rewrite or delete that persona. This is the monotonic guard for that: it refuses any call whose
+ * arguments point at the store, and any command that mentions the store together with a write feature.
+ *
+ * Two honest limits, both deliberate: this constrains behaviour rather than enforcing security (a payload
+ * without a write marker, a plugin edit, or a manual edit still get through), and the shell test reads the
+ * whole command, so a read and a write of the store in one line is refused as a unit.
+ */
+export const personaStoreGuardReason = (execution, storePath) => {
+  const values = stringsIn(execution?.arguments)
+  const target = resolve(storePath)
+  if (values.some((value) => {
+    try {
+      return resolve(value) === target
+    } catch {
+      return false
+    }
+  })) return STORE_REFUSAL
+  const base = basename(storePath)
+  const dir = dirname(storePath)
+  if (values.some((value) => (value.includes(base) || value.includes(dir))
+    && STORE_WRITE_MARKERS.some((marker) => value.includes(marker)))) return STORE_REFUSAL
+  return undefined
 }
 
 export const sanitizePersona = (text, warn = () => {}) => {
@@ -1079,7 +1154,12 @@ export function apply(ctx, config = {}) {
 
   // Re-read the file whenever its stamp changes, so an edit applies to the next
   // request even from an instance that is already running.
-  let store = loadStore(storePath, warn)
+  let loaded = loadStore(storePath, warn)
+  let store = loaded.store
+  /** Set when the file on disk could not be used; cleared once it has been preserved and replaced. */
+  let reset = loaded.reset
+  /** Where the unreadable file was preserved, once that has happened. */
+  let resetBackup = ''
   let storeStamp = stampOf()
   function stampOf() {
     try {
@@ -1092,12 +1172,37 @@ export function apply(ctx, config = {}) {
   const reload = () => {
     const stamp = stampOf()
     if (stamp !== storeStamp) {
-      store = loadStore(storePath, warn)
+      loaded = loadStore(storePath, warn)
+      store = loaded.store
+      // A fresh reset supersedes the previous record; our own write, which also moves the stamp, must not
+      // erase the note about where the original was preserved.
+      if (loaded.reset !== undefined) resetBackup = ''
+      reset = loaded.reset
       storeStamp = stamp
     }
     return store
   }
   const currentStore = () => (storeStamp === stampOf() ? store : reload())
+
+  /**
+   * Every write goes through here. While the in-memory store is the result of a reset, the file on disk is
+   * still the one that could not be read, so it is copied aside before being replaced; a copy that fails
+   * aborts the write rather than destroying content nothing preserved.
+   */
+  const commit = (next) => {
+    if (reset !== undefined) {
+      resetBackup = backupStoreFile(storePath, backupStamp())
+      info(`preserved the unreadable store at ${resetBackup}`)
+      reset = undefined
+    }
+    persist(next, storePath)
+  }
+
+  const storeHealth = () => {
+    if (reset !== undefined) return { status: 'reset', path: storePath, reason: reset.reason, willBackup: true }
+    if (resetBackup !== '') return { status: 'backed-up', path: storePath, backupPath: resetBackup }
+    return { status: 'ok' }
+  }
 
   // ── model resolution for AI tuning: never bake a vendor default into the code.
   // Explicit UI choice wins; then the plugin row's config; then the host's own
@@ -1177,6 +1282,12 @@ export function apply(ctx, config = {}) {
     warn(`section "${SECTION_NAME}" is already registered; keeping the live one`, error)
   }
 
+  // The store is this plugin's instruction source, so no tool call may write it. The guard is monotonic:
+  // once it refuses a call nothing later can allow it. Registered through the effect, so unloading the
+  // plugin removes it instead of leaving a process-wide refusal behind.
+  ctx.effect(() => ctx.tools.guard((execution) => personaStoreGuardReason(execution, storePath)), 'agent-persona.store-guard')
+  info(`store guard registered for ${storePath}`)
+
   /** Target decorated with the flags the page needs to explain itself. */
   const describeTarget = (target) => ({
     ...target,
@@ -1213,6 +1324,7 @@ export function apply(ctx, config = {}) {
       version: STORE_VERSION,
       storePath,
       prefs: normalizePrefs(reload().prefs),
+      storeHealth: storeHealth(),
       pluginVersion: PLUGIN_INFO.version,
       installOrigin: PLUGIN_INFO.origin,
       sectionName: SECTION_NAME,
@@ -1255,7 +1367,7 @@ export function apply(ctx, config = {}) {
     savePrefs(input) {
       const current = reload()
       current.prefs = normalizePrefs({ ...current.prefs, ...(input ?? {}) })
-      persist(current, storePath)
+      commit(current)
       info(`preferences saved: ${JSON.stringify(current.prefs)}`)
       return view()
     },
@@ -1291,7 +1403,7 @@ export function apply(ctx, config = {}) {
           released.push(other.name)
         }
       }
-      persist(current, storePath)
+      commit(current)
       const result = view()
       if (released.length > 0) {
         result.notice = `「${persona.name}」现在是默认人设；「${released.join('」「')}」已取消默认`
@@ -1310,7 +1422,7 @@ export function apply(ctx, config = {}) {
       const before = current.personas.length
       current.personas = current.personas.filter((persona) => persona.id !== id)
       if (current.personas.length === before) throw new Error('人设不存在（可能已被删除）')
-      persist(current, storePath)
+      commit(current)
       info(`deleted persona ${id}`)
       return view()
     },
@@ -1324,7 +1436,7 @@ export function apply(ctx, config = {}) {
       if (to !== from) {
         const [moved] = current.personas.splice(from, 1)
         current.personas.splice(to, 0, moved)
-        persist(current, storePath)
+        commit(current)
       }
       return view()
     },
@@ -1342,7 +1454,7 @@ export function apply(ctx, config = {}) {
         text: source.text,
         targets: clone(source.targets),
       })
-      persist(current, storePath)
+      commit(current)
       info(`duplicated persona "${source.name}" (copy starts disabled)`)
       return view()
     },
@@ -1353,7 +1465,7 @@ export function apply(ctx, config = {}) {
       const current = reload()
       if (!current.personas.some((persona) => persona.id === id)) throw new Error('人设不存在（可能已被删除）')
       if (reorderPersonas(current, id, toIndex)) {
-        persist(current, storePath)
+        commit(current)
         info(`moved persona "${id}" to position ${Math.max(0, Math.min(current.personas.length - 1, toIndex)) + 1}`)
       }
       return view()

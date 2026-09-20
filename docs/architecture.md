@@ -120,7 +120,7 @@ host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `supe
 
 | 方法 | 入参 | 返回 |
 |---|---|---|
-| `listPersonas` | — | 视图：`storePath` / `sectionName` / `sectionOrder` / `allowedVariables` / `targetKinds` / `targetMatches` / `tuneModes` / `counts` / **`prefs`** / **`pluginVersion`** / **`installOrigin`** / `personas[]`（含 `chars`、`noTargets`、`fallback`、每个 target 的 `invalid` 标记） |
+| `listPersonas` | — | 视图：`storePath` / `sectionName` / `sectionOrder` / `allowedVariables` / `targetKinds` / `targetMatches` / `tuneModes` / `counts` / **`prefs`** / **`pluginVersion`** / **`installOrigin`** / **`storeHealth`** / `personas[]`（含 `chars`、`noTargets`、`fallback`、每个 target 的 `invalid` 标记） |
 | `savePersona` | `{ id?, name, enabled, fallback?, mode?, text, targets }` | 视图（无 `id` = 新建，追加到末尾 = 最低优先级；`fallback` 未提及则保留原值） |
 | `deletePersona` | `{ id }` | 视图 |
 | `movePersona` | `{ id, delta: -1 \| 1 }` | 视图 |
@@ -179,8 +179,38 @@ host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `supe
   且运行中的插件实例在文件被替换后**下一个请求**就生效。
 - 读取是**宽容**的：只要求文档里有 `personas` 数组，每个条目都过一遍 `normalizePersona`（丢弃不认识的
   字段、补全缺失的字段）；不是人设文档就退回空存储并告警，不抛错。
+- **"文件不存在"与"文件存在但读不出来"是两件事**：前者是首次运行，静默地从空存储开始；后者是**重置**，
+  `loadStore` 会带回 `{ reason, path }`，一路传到 `view().storeHealth`，页面据此显示原因与原始路径。
+- **重置之后的第一次写入会先保住原文件**：六个写入点全部改走同一个 `commit(next)`，它在 `persist` 之前调用
+  `backupStoreFile(storePath, backupStamp())`，把原文件复制成 `<file>.bak-<本地时间戳>`（600 权限，原文件留在原地），
+  然后才写。复制失败会让这次写入失败 —— 宁可写不进去，也不覆盖一份没被保住的文件。写入成功后状态变成
+  `backed-up`，页面显示备份路径与手工恢复的方法。
+- `reload()` 只在遇到**新的重置**时清掉备份记录：我们自己那次写入同样会改变文件戳，不能因此把记录抹掉。
 - **默认位置是全局一份**（`$DSH_HOME/dsh-agent-persona/personas.json`，与其它插件状态目录同一约定）；
   要让某个 profile 独立，在**该 profile** 的 `cordis.patch.yml` 里覆盖 `config.storePath`。
 - `collectTargets(ctx, warn)` 负责收集设置页下拉框的候选：工作区走 `workspaceRegistry.list()`（取
   `path` / `title` / `sessionIds`），会话走 `sessionPersistence.list()`（按 `createdAt` 倒序，取标题经
   `sessionTitle.get(session)`）。任何一个服务缺席都只是告警 + 空列表，页面会退回"自己输入…"。
+
+## 9. 工具防篡改（store guard）
+
+人设正文会进入 **system prompt**，所以存储文件就是这个插件自己的指令来源：一个正被某条人设约束的会话，
+不该能反过来改掉或删掉那条人设。宿主在 apply 里注册一个全局 guard：
+
+```ts
+ctx.effect(() => ctx.tools.guard((execution) => personaStoreGuardReason(execution, storePath)), 'agent-persona.store-guard')
+```
+
+- **单调**：`ctx.tools.guard` 返回字符串即拒绝，且后面的监听器无法撤销（DSH 工具流水线里，guard 排在
+  `tools/pre-execute` 之后、`tools/execute` 之前）。`undefined` 表示放行。
+- **经 ctx 注册**：用 `ctx.effect` 持有，插件卸载时 guard 随之移除，不会在进程里留下一个永久的拒绝。
+- **判定**（`personaStoreGuardReason`，已导出以便断言）：
+  - 递归取出这次调用参数里的所有字符串（最多 6 层），凡 `resolve()` 后等于存储路径的，一律拒绝；
+    这样 `write` / `edit` / 未来任何写文件的工具都覆盖，不依赖字段名；
+  - 字符串里同时出现**存储文件名或所在目录**与**写入特征**（`>`、`rm`、`mv`、`cp`、`chmod`、`chflags`、
+    `truncate`、`sed -i`、`tee`、`write(`、`unlink(`、`rename(`）的，也拒绝 —— 这一条主要面向 bash；
+  - 只读命令（`cat`、`head`、`md5`…）不含写入特征，照旧放行。
+- **边界（如实说明）**：这是行为约束，不是安全边界。本机 `danger-full-access` 时仍可绕过（改插件、改 patch、
+  构造不带写入特征的载荷）；shell 那条按**整条命令**判定，所以"读一次并重定向到别处"也会被拒（设计如此）。
+  要更结实只能在机器层面做：`chflags uchg`，或者把 DSH 跑在受限沙箱里。
+- 插件**自己**的写入不受影响（宿主直接写文件，不经过工具流水线），你在界面上的保存照旧可用。

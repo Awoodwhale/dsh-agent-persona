@@ -28,6 +28,15 @@ wants its own identity, tone and constraints. This plugin hands each of them its
   persona.
 - **Empty text means "no persona here"** — add a rule for a place and leave the body empty to switch it off there.
 - **An edit applies to the next message.** No restart: the body is re-read per assembly by file stamp.
+- **Tools cannot write the persona file.** The body becomes part of the system prompt, so the host registers a
+  global `tools.guard` that refuses every call pointing at the persona store — file tools by the paths in their
+  arguments, shell commands by mentioning the store together with a write feature — while read-only commands pass.
+- **A store that cannot be read is never lost quietly.** When the file exists but cannot be used, the page says
+  what happened and why, and the first save copies the original to `personas.json.bak-<timestamp>` before touching
+  it. If that copy fails, the write fails with it.
+- **Import / export.** Export writes a JSON document without local ids or interface preferences (and copies it to
+  the clipboard); import takes a pasted document or a chosen file, previews every persona with its size and reach,
+  and creates them **disabled** and appended at the end, never taking over the default slot.
 
 Three surfaces, three jobs:
 
@@ -203,14 +212,20 @@ Agent 人设 page (`保存在 …`), so it is never a mystery which file you are
 
 - **A persona is a behavioural constraint, not a security boundary.** It shapes what the model says; it does not
   stop tools.
-- `personas.json` is an **ordinary file**: any session with file tools can write it. This plugin does **not**
-  register a `tools.guard`. If you need "a conversation inside the workspace cannot change the persona", do it at
-  the machine level (`chmod 400` plus a different owner, or a restricted sandbox).
+- Tamper protection is a **behaviour** measure: the plugin registers a global `tools.guard` that refuses writes to
+  `personas.json` (file tools by the paths in their arguments; shell commands by mentioning the store together
+  with a write feature). On a `danger-full-access` machine it can still be bypassed — edit the plugin, edit the
+  profile patch, or craft a payload without a write marker. Harder options live at the machine level:
+  `chflags uchg <store>` (run `chflags nouchg` before editing it yourself), or a restricted sandbox with the store
+  owned by another user.
+- That shell test reads the **whole command**: a `md5 <store>` and a `chmod <store>` on one line are refused as a
+  unit (deliberate).
 - Only the **first** match is used — no concatenation. Matching is a linear scan; dozens of rules are fine,
   hundreds want a redesign.
 - Install once per profile: two rows with the same id in one process make the composition fail.
-- **Test boundary**: the suite is unit tests plus source audits (134 host assertions, 15 client assertions, and a
-  generated-artifact drift check). It does not drive a browser — UI behaviour is checked by hand today.
+- **Test boundary**: the suite is unit tests plus source audits (196 host assertions, 116 client assertions, and a
+  generated-artifact drift check; the numbers are counted by the suites themselves, so they cannot fall behind
+  the files). It does not drive a browser — UI behaviour is checked by hand today.
 
 ## Development
 
@@ -229,7 +244,7 @@ docs/              architecture, development notes, design decisions
 npm install
 npm run build        # generate:remote → tsc → esbuild (writes lib/)
 npm run typecheck    # both tsconfigs, no errors
-npm test             # 134 + 15 assertions plus the generated-artifact drift check
+npm test             # 196 + 116 assertions plus the generated-artifact drift check
 dsh --profile web --dump-config | grep -c 'id: agent-persona'   # composition self-check, expects 1
 ```
 
