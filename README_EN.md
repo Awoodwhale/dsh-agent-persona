@@ -102,6 +102,8 @@ replies on the left.
 
 ### The 人设 tab on a conversation
 
+![session view](./docs/images/view-persona.png)
+
 **人设 / 提示词 / 管理**:
 
 - **人设** — which persona matched, **which of its rules matched**, the body as Markdown, its own state markers

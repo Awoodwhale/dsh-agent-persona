@@ -98,6 +98,8 @@ dsh plugin --profile web add dsh-agent-persona
 
 ### 对话页的「人设」标签
 
+![会话视图](./docs/images/view-persona.png)
+
 选中一条会话后，对话页顶部有 **人设 / 提示词 / 管理** 三个面板：
 
 - **人设**：这条会话命中了哪条人设、**依据是哪几条规则**（命中依据）、正文（Markdown 渲染），
