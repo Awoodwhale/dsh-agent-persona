@@ -64,7 +64,15 @@ dsh plugin --profile web add dsh-agent-persona
 
 仓库里也有本地安装脚本：`bash scripts/install.sh`（Windows 是 `scripts/install.ps1`）。
 
-卸载：`dsh plugin --profile web remove dsh-agent-persona`，重启即可；人设文件不会被删。
+升级与卸载（`dsh plugin …` 就是在 profile 目录里代跑包管理器）：
+
+```bash
+dsh plugin --profile web update dsh-agent-persona            # 升级（按依赖的版本范围取最新）
+dsh plugin --profile web add dsh-agent-persona@latest        # 想跨大版本升到最新
+dsh plugin --profile web remove dsh-agent-persona            # 卸载
+```
+
+升级或卸载后**重启一次 `dsh web`**。人设文件不会被删、也不会被覆盖：卸载是人设只留在文件里的操作。
 
 ## 用起来
 

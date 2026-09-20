@@ -72,7 +72,17 @@ After the restart:
   where the store is.
 
 Local install scripts live in `scripts/install.sh` and `scripts/install.ps1`.
-To remove: `dsh plugin --profile web remove dsh-agent-persona`, restart; the persona file is left alone.
+
+Upgrading and removing (`dsh plugin …` runs the profile's package manager for you):
+
+```bash
+dsh plugin --profile web update dsh-agent-persona            # upgrade within the declared range
+dsh plugin --profile web add dsh-agent-persona@latest        # jump to the newest major
+dsh plugin --profile web remove dsh-agent-persona            # uninstall
+```
+
+**Restart `dsh web` once** after an upgrade or a removal. Your persona file is neither deleted nor
+overwritten — uninstalling only removes the plugin.
 
 ## Using it
 
