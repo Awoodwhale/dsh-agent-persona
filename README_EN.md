@@ -88,6 +88,10 @@ To remove: `dsh plugin --profile web remove dsh-agent-persona`, restart; the per
 - Boundaries like prefixes and regexes are available through **type it yourself…**.
 - A persona with **no rows applies nowhere** (it is a draft) unless it is marked as the default.
 
+An expanded card — name, state, the default switch, injection mode, the reach rules, the body and the footer:
+
+![expanded card](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/settings-editor.png)
+
 ### Reading what a session actually said
 
 The button next to the session dropdown opens a **read-only** transcript: your inputs on the right, the agent's
