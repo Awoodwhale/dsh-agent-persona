@@ -89,7 +89,7 @@ assert.ok(declared.length > 3, 'and the check found the render locals')
 // appears there), and its absence must leave the plugin untouched.
 assert.ok(source.includes("ctx.inject(['sidebarRightTabs']"), 'the sidebar tab service is injected')
 assert.ok(source.includes('guide: ['), 'with a guide entry, which is what the sidebar lists')
-assert.ok(source.includes("id: 'agent-persona',\n          kind: 'agent-persona'"), 'registered under our own id and kind')
+assert.ok(source.includes('id: NS,') && source.includes('kind: NS,'), 'registered under our own id and kind (the NS constant)')
 for (const gone of ['sidebar.footer.action', 'shell.overlay', 'PersonaFooterAction', 'PersonaOverlay']) {
   assert.equal(source.includes(gone), false, `${gone} must not come back: the sidebar owns its own entry points`)
 }

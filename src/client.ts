@@ -108,6 +108,24 @@ window.__ModuleLoader__.load({
  * inject below only fires when that service exists, so the switch for it appears only then.
  */
 let sidebarAvailable = false
+/** Set once the sidebar tab service exists; toggling the preference calls it to add or drop the module. */
+let syncSidebarModule = () => {}
+
+/** Ask the sidebar plugin to place our module in the right bar of the session in view. */
+const openSidebarModule = (ctx) => {
+  try {
+    const better = ctx.get('betterSidebar')
+    if (better === undefined || better === null || typeof better.openTab !== 'function') return false
+    const current = JSON.parse(window.localStorage?.getItem('dsh.sessions.current') ?? '{}')
+    if (typeof current?.sessionId !== 'string') return false
+    void better.openTab({ type: NS }, { sessionId: current.sessionId })
+    const layout = ctx.get('layout')
+    if (layout !== undefined && layout !== null && typeof layout.openRightbar === 'function') layout.openRightbar(true, false)
+    return true
+  } catch {
+    return false
+  }
+}
 
 /**
  * The store is the source of truth for preferences; this mirror exists only because the
@@ -123,7 +141,7 @@ const readPrefs = () => {
     }
     /** Status line for a preference change: the two display switches only take effect on reload. */
     const prefStatus = (next, patch) => ('showTab' in patch || 'showSidebar' in patch)
-      ? '已保存：显示位置在重新打开页面后生效'
+      ? '已保存：已立即生效'
       : (next.autosave === true ? '已开启：编辑后停止输入约 1 秒即自动保存' : '已关闭：编辑后自动保存')
 
     /**
@@ -134,6 +152,7 @@ const readPrefs = () => {
     const persistPrefs = (api, unwrap, current, patch, report) => {
       const next = writePrefs({ ...current, ...patch })
       report({ prefs: next, status: prefStatus(next, patch) })
+      syncSidebarModule()
       if (api === undefined || typeof api.savePrefs !== 'function') return next
       void api.savePrefs(next).then((result) => {
         const view = unwrap === undefined ? result : unwrap(result)
@@ -633,6 +652,9 @@ const readPrefs = () => {
      * Markdown (editable, saved straight into the store) and the system prompt the session
      * last sent, read from its own log.
      */
+    /** The persona page as it appears inside the sidebar plugin's right pane. */
+    const SidebarPersonaView = (props) => h(PersonaView, { ...props, host: 'sidebar' })
+
     class PersonaView extends React.Component {
       constructor(props) {
         super(props === undefined || props === null ? {} : props)
@@ -1039,7 +1061,7 @@ const since = (timestamp) => {
         return h('div', { className: 'wsp-prefs-row', 'data-plugin': NS }, [
           h('div', { className: 'wsp-prefs-row-head', key: 'h' }, [
             h('span', { className: 'wsp-prefs-row-title', key: 't' }, 'Agent 人设'),
-            h('span', { className: 'wsp-prefs-row-note', key: 'n' }, '关闭显示位置后，可随时回到这里重新打开；重新打开侧边栏后，需在右侧栏的「新标签页」里再选一次「Agent 人设」'),
+            h('span', { className: 'wsp-prefs-row-note', key: 'n' }, '打开即在右侧栏出现 Agent 人设模块，关闭即移除；开关立即生效'),
           ]),
           h('div', { className: 'wsp-prefs', key: 'p' }, [
             h(Switch, { key: 'auto', checked: prefs.autosave === true, label: '编辑后自动保存', onChange: (next) => this.set({ autosave: next }) }),
@@ -2425,33 +2447,41 @@ const since = (timestamp) => {
       // The sidebar is adapted through the sidebar plugin's own service (dsh-better-sidebar):
       // it owns the tab list, and a registered tab type with a guide entry is what appears
       // there. No footer button, and nothing happens when the plugin is absent.
-      if (prefs.showSidebar) ctx.inject(['sidebarRightTabs'], (own) => {
-        sidebarAvailable = true
-        const tabs = own?.sidebarRightTabs
-        if (tabs === undefined || typeof tabs.register !== 'function') return
-        tabs.register({
-          id: 'agent-persona',
-          kind: 'agent-persona',
-          title: () => 'Agent 人设',
-          guide: [{
-            order: 30,
-            title: () => 'Agent 人设',
-            description: () => '这条会话的人设、实际发送的提示词，以及全部人设的管理',
-            icon: IconUserOutline16,
-          }],
-        })
-      })
-
-      if (prefs.showSidebar) ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+      // The sidebar module is registered or removed on demand, so the switch takes effect at once:
+      // on adds it to the right bar, off takes it away. The sidebar plugin owns the placement, so
+      // turning it on asks that service to open the module instead of leaving an empty bar.
+      // Tab bodies: always registered, so a tab of this kind can render the moment the type exists.
+      ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
         name: 'sidebar.right.pane.tab',
-        key: 'agent-persona',
+        key: NS,
         inject: () => ({ api: capturedApi }),
-      }, (props) => h(PersonaView, { ...props, host: 'sidebar' })))
+      }, SidebarPersonaView))
 
-      if (prefs.showSidebar) ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
+      ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
         name: 'sidebar.right.pane.tab.title',
-        key: 'agent-persona',
+        key: NS,
+        inject: () => ({ api: capturedApi }),
       }, () => 'Agent 人设'))
+
+      ctx.inject(['sidebarRightTabs'], (own) => {
+        const tabs = own?.sidebarRightTabs ?? own?.get?.('sidebarRightTabs')
+        sidebarAvailable = tabs !== undefined && typeof tabs.register === 'function'
+        if (sidebarAvailable !== true) return
+        let disposer
+        syncSidebarModule = () => {
+          if (typeof disposer === 'function') disposer()
+          disposer = undefined
+          if (readPrefs().showSidebar === false) return
+          disposer = tabs.register({
+            id: NS,
+            kind: NS,
+            title: () => 'Agent 人设',
+            guide: [{ order: 30, title: () => 'Agent 人设', description: () => '这条会话的人设、实际发送的提示词，以及全部人设的管理' }],
+          })
+          openSidebarModule(ctx)
+        }
+        syncSidebarModule()
+      })
 
       // Always registered, whatever the display switches say: this is the way back from them.
       ctx.slots.inject('settings.general.item', () => ctx.slots.register({
