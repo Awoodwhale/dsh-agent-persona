@@ -144,12 +144,13 @@ host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `supe
 
 | 座位 / 方式 | 位置 | 说明 |
 |---|---|---|
-| `settings.section`（order 22） | 设置 → Agent 人设 | 完整管理页：列表、规则编辑器、正文编辑/预览、AI 调优 |
-| `settings.general.item`（order 30） | 设置 → 通用设置 | **三个偏好开关的常驻行** —— 它不受这些开关影响，关掉显示位置后永远能从这里打开 |
+| `settings.section`（order 22） | 设置 → Agent 人设 | 完整管理页：**三个偏好开关**、列表、规则编辑器、正文编辑/预览、AI 调优 —— 它不受这三个开关影响，所以是它们的回头路 |
 | `conversation.view`（order 30） | 对话页顶部「人设」 | 人设 / 提示词 / 管理 三个面板；由 `showTab` 决定是否注册 |
 | `betterSidebar.registerTab` | dsh-better-sidebar 的右侧栏 | 同一套页面挂进侧边栏；由 `showSidebar` 决定注册还是注销，未装该插件时**不注册也不显示开关** |
 
 对话页与侧边栏两处都在**运行时**注册/注销（切换开关立即生效），而决策来自 §6 的镜像。
+本插件**不往 `settings.general.item` 注册任何条目** —— 偏好开关只出现在设置页里（上表第一行），
+`test/client-helpers.test.mjs` 有一条断言守着这一点。
 
 ## 6. 界面偏好
 

@@ -242,12 +242,6 @@ const readPrefs = () => {
 .wsp-card:not(.wsp-card-open):hover { border-color: var(--wsp-line-strong); background: var(--wsp-surface-2); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
 .wsp-card-open { border-color: var(--wsp-line-strong); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.04); }
 .wsp-prefs { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 10px; }
-.wsp-prefs-row { display: flex; flex-direction: column; gap: 4px; }
-.wsp-prefs-row-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.wsp-prefs-row-title { font-size: 13px; font-weight: 600; color: var(--wsp-text); }
-.wsp-prefs-row-note { font-size: 11px; color: var(--wsp-muted-2); }
-.wsp-prefs-row-status { font-size: 11.5px; color: var(--wsp-muted); }
-.wsp-prefs-row .wsp-prefs { margin-top: 4px; }
 .wsp-prefs .wsp-switch-text { font-size: 12.5px; }
 .wsp-row-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px 3px; min-height: 44px; box-sizing: border-box; flex-wrap: wrap; border-radius: 12px 12px 0 0; }
 /* 展开后的卡片：头部吸顶，保存按钮就在手边 */
@@ -1015,83 +1009,6 @@ const since = (timestamp) => {
     ])
 
     // ── the settings page ───────────────────────────────────────────────────
-
-    /**
-     * The same three switches, as a row in Settings → General. It exists because the two display
-     * switches can hide the conversation tab and the sidebar seats: without a surface that no
-     * preference can hide, switching the sidebar off would leave no way back to the switch.
-     */
-    class PersonaPrefsRow extends React.Component {
-      constructor(props) {
-        super(props)
-        this.state = { prefs: readPrefs(), status: '' }
-        this.mounted = false
-      }
-
-      componentDidMount() {
-        this.mounted = true
-        void this.load()
-      }
-
-      componentWillUnmount() {
-        this.mounted = false
-      }
-
-      api() {
-        return this.props?.api ?? capturedApi
-      }
-
-      async load() {
-        const api = this.api()
-        if (api === undefined) return
-        try {
-          const view = unwrapEnvelope(await api.listPersonas())
-          if (this.mounted !== true) return
-          if (view !== undefined && view !== null && view.prefs !== undefined && view.prefs !== null) writePrefs(view.prefs)
-          this.setState({ prefs: (view !== undefined && view !== null && view.prefs) || this.state.prefs })
-        } catch (error) {
-          if (this.mounted === true) this.setState({ status: `读取偏好失败：${String((error && error.message) || error)}` })
-        }
-      }
-
-      set(patch) {
-        persistPrefs(this.api(), unwrapEnvelope, this.state.prefs ?? DEFAULT_PREFS, patch, (update) => {
-          if (this.mounted !== true) return
-          this.setState((previous) => ({
-            prefs: update.prefs ?? previous.prefs,
-            status: update.status ?? previous.status,
-          }))
-        })
-      }
-
-      render() {
-        const prefs = this.state.prefs ?? DEFAULT_PREFS
-        return h('div', { className: 'wsp-prefs-row', 'data-plugin': NS }, [
-          h('div', { className: 'wsp-prefs-row-head', key: 'h' }, [
-            h('span', { className: 'wsp-prefs-row-title', key: 't' }, 'Agent 人设'),
-            sidebarProbe() === undefined
-              ? null
-              : h('span', { className: 'wsp-prefs-row-note', key: 'n' }, '注册后，dsh-better-sidebar 的「侧边卡片 → 侧边栏内容」里会多出 Agent 人设；注销即移除（立即生效）'),
-          ]),
-          h('div', { className: 'wsp-prefs', key: 'p' }, [
-            h(Switch, { key: 'auto', checked: prefs.autosave === true, label: '编辑后自动保存', onChange: (next) => this.set({ autosave: next }) }),
-            h(Switch, {
-              key: 'tab',
-              checked: prefs.showTab !== false,
-              label: '在对话页显示「人设」标签',
-              onChange: (next) => this.set({ showTab: next }),
-            }),
-            ...(sidebarProbe() === undefined ? [] : [            h(Switch, {
-              key: 'side',
-              checked: prefs.showSidebar !== false,
-              label: '注册到 dsh-better-sidebar',
-              onChange: (next) => this.set({ showSidebar: next }),
-            }),]),
-          ]),
-          this.state.status === '' ? null : h('span', { className: 'wsp-prefs-row-status', key: 's', 'aria-live': 'polite' }, this.state.status),
-        ])
-      }
-    }
 
     class WorkspacePersonaSection extends React.Component {
       constructor(props) {
@@ -2492,14 +2409,6 @@ const since = (timestamp) => {
         }
         syncSidebarModule()
       }
-
-      // Always registered, whatever the display switches say: this is the way back from them.
-      ctx.slots.inject('settings.general.item', () => ctx.slots.register({
-        name: 'settings.general.item',
-        id: NS,
-        order: 30,
-        inject: () => ({ api: capturedApi }),
-      }, PersonaPrefsRow))
 
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',

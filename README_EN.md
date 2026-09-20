@@ -37,9 +37,9 @@ Three surfaces, three jobs:
 | **Session view** | the **人设** tab on a conversation | Which persona this session matched and why, the **system prompt it actually sent** (rendered and source), and the same management UI inline |
 | **Sidebar card** | the right bar of `dsh-better-sidebar` | Puts that same view into the sidebar (needs that plugin installed) |
 
-Three preference switches (`编辑后自动保存` / `在对话页显示「人设」标签` / `注册到 dsh-better-sidebar`) appear both on the
-manage page and in **Settings → General** — the latter is not affected by them, so a display position can always
-be switched back on.
+All three preference switches (`编辑后自动保存` / `在对话页显示「人设」标签` / `注册到 dsh-better-sidebar`) live on the
+**Settings → Agent 人设** page, which none of them can hide: switching the conversation tab or the sidebar card
+off and returning there is how you turn them back on. This plugin adds nothing to **Settings → General**.
 
 ## Why it outranks AGENTS.md
 

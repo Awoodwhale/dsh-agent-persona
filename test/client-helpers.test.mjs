@@ -60,7 +60,7 @@ for (const match of source.matchAll(/slots\.register\(/g)) {
 }
 const unresolvedRegistrants = [...new Set(registrants)].filter((name) => !defined.has(name) && !imported.has(name))
 assert.deepEqual(unresolvedRegistrants, [], `slot registrants that are never defined: ${unresolvedRegistrants.join(', ')}`)
-assert.ok(registrants.length >= 3, `and the audit found the slot registrants (${registrants.length})`)
+assert.ok(registrants.length >= 2, `and the audit found the slot registrants (${registrants.length})`)
 const iconsUsed = [...new Set([...source.matchAll(/\b(Icon[A-Za-z0-9]+)\b/g)].map((match) => match[1]))]
 const unresolvedIcons = iconsUsed.filter((name) => !imported.has(name) && !defined.has(name))
 assert.deepEqual(unresolvedIcons, [], `these icons are used but never imported: ${unresolvedIcons.join(', ')}`)
@@ -225,16 +225,13 @@ assert.ok(source.includes('writePrefs(view.prefs)'), 'and every view refreshes t
 assert.ok(source.includes('store is the source of truth for preferences'), 'which the comment states, so nobody mistakes the mirror for the truth')
 
 
-// ── the display switches must never be able to hide their own way back: the same three switches are
-// also a row in Settings → General, registered outside any preference gate
-const prefsRowAt = source.indexOf('class PersonaPrefsRow')
-assert.ok(prefsRowAt > 0, 'the General-settings row exists')
-assert.ok(source.slice(prefsRowAt).includes("'settings.general.item'"), 'and is registered in that seat')
-const generalReg = source.slice(source.indexOf("ctx.slots.inject('settings.general.item'"), source.indexOf("ctx.slots.inject('settings.section'"))
-assert.equal(/if \(prefs\./.test(generalReg), false, 'with no preference gating it')
+// ── the switches live on the settings page only, and that seat must stay ungated: it is the way back
+// from them, since the conversation tab and the sidebar card can both be switched off from there.
+assert.equal(source.includes("ctx.slots.inject('settings.general.item'"), false, 'General settings does not carry this plugin')
+const settingsSeat = source.slice(source.indexOf("ctx.slots.inject('settings.section'"), source.indexOf('}, WorkspacePersonaSection'))
+assert.equal(/if \(prefs\./.test(settingsSeat), false, 'and the settings seat is registered unconditionally')
 assert.ok(source.includes('const persistPrefs = (api, unwrap, current, patch, report)'), 'both surfaces share one save implementation')
-assert.ok(source.includes('persistPrefs(this.api(), (result) => this.unwrap(result)'), 'the settings page uses it')
-assert.ok(source.includes('persistPrefs(this.api(), unwrapEnvelope'), 'and so does the row')
+assert.ok(source.includes('persistPrefs(this.api(), (result) => this.unwrap(result)'), 'which the settings page uses')
 
 
 // ── without the sidebar plugin there is no sidebar to register into, so that switch must not appear.
@@ -242,6 +239,6 @@ assert.ok(source.includes('persistPrefs(this.api(), unwrapEnvelope'), 'and so do
 assert.ok(source.includes('let sidebarProbe = () => undefined'), 'the probe exists')
 assert.ok(source.includes('sidebarProbe = () => {'), 'and is assigned in apply')
 assert.ok(source.includes("return ctx.get('betterSidebar')"), 'probing the sidebar plugin itself')
-assert.equal((source.match(/sidebarProbe\(\) === undefined/g) ?? []).length, 3, 'two switches and one note gate on it')
+assert.equal((source.match(/sidebarProbe\(\) === undefined/g) ?? []).length, 1, 'the settings page gates that one switch on it')
 
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))
