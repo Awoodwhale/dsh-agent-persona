@@ -2,31 +2,50 @@
 
 Different system-prompt personas for different **workspaces** and different **sessions**.
 
-A DSH deployment usually runs several jobs at once — frontend work, docs, alert triage, code review — and each
-wants its own identity, tone and constraints. Delivering a persona by workspace or session beats keeping one
-file per workspace:
-
-- Personas live **outside any workspace** (`~/.dsh/dsh-agent-persona/`), so a conversation inside that
-  workspace cannot rewrite them, and a `git checkout` or a cleanup will not take them away.
-- A persona is injected as **part of the system prompt**, not as a chat message, which puts it above the
-  workspace `AGENTS.md`.
-- Everything is configured in the Web settings page: create a persona, pick workspaces or sessions from
-  dropdowns, write the text, let AI rework it with the model DSH is set to use.
-- An edit applies to the **next message**. No restart.
-
 [![npm](https://img.shields.io/npm/v/dsh-agent-persona)](https://www.npmjs.com/package/dsh-agent-persona)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![ci](https://github.com/awoodwhale/dsh-agent-persona/actions/workflows/ci.yml/badge.svg)](https://github.com/awoodwhale/dsh-agent-persona/actions/workflows/ci.yml)
 
 [中文](./README.md)
 
-Note: the settings UI is in Chinese. The code and docs are English.
+Note: the settings UI is in Chinese. The code, docs and this file are English.
+
+## What it does
+
+A DSH deployment usually runs several jobs at once — frontend work, docs, alert triage, code review — and each
+wants its own identity, tone and constraints. This plugin hands each of them its own persona, injected as a
+**section of the system prompt**:
+
+- **Many personas, each with its own reach.** One persona can apply to several workspace directories and several
+  sessions; a match is `exact`, `prefix`, `contains` or `regex`.
+- **More specific wins.** A session-id rule beats a workspace rule, and `exact` beats `prefix`/`contains`/`regex`;
+  only equal specificity falls back to list order.
+- **An explicit default persona.** Mark one persona as the default and it takes every session nothing else claimed
+  — at most one at a time. With none marked, those sessions keep DSH's own system prompt.
+- **A place belongs to one persona.** Pointing a workspace or session at a new persona takes it away from whoever
+  held it, and the save reports whose claim moved.
+- **Append or replace.** Keep DSH's identity line and put the persona after it, or drop that line and use only the
+  persona.
+- **Empty text means "no persona here"** — add a rule for a place and leave the body empty to switch it off there.
+- **An edit applies to the next message.** No restart: the body is re-read per assembly by file stamp.
+
+Three surfaces, three jobs:
+
+| Surface | Where | What for |
+|---|---|---|
+| **Settings page** | Settings → Agent 人设 | Create, edit, delete, duplicate and reorder personas; write the body, preview Markdown, let AI rework it |
+| **Session view** | the **人设** tab on a conversation | Which persona this session matched and why, the **system prompt it actually sent** (rendered and source), and the same management UI inline |
+| **Sidebar card** | the right bar of `dsh-better-sidebar` | Puts that same view into the sidebar (needs that plugin installed) |
+
+Three preference switches (`编辑后自动保存` / `在对话页显示「人设」标签` / `注册到 dsh-better-sidebar`) appear both on the
+manage page and in **Settings → General** — the latter is not affected by them, so a display position can always
+be switched back on.
 
 ## Why it outranks AGENTS.md
 
 DSH turns workspace instructions (`AGENTS.md` and friends) into a **user-role** message, and that message's own
 intro says *"They do not override system, developer, or direct user instructions."* This plugin writes a
-**system-prompt section** instead (order 1, right after the identity line).
+**system-prompt section** instead (section name `agent-persona`, order 1, right after the identity line).
 
 That ordering is the framework's, not something the plugin claims — which is also why editing files inside the
 workspace cannot touch this layer.
@@ -41,153 +60,156 @@ Then **restart `dsh web` once**: profile bundles are read at startup, and that i
 
 After the restart:
 
-- Sidebar → **Settings → Agent人设**;
-- `cat ~/.dsh/dsh-agent-persona/state.json` — the load heartbeat, naming the file it loaded and where the
-  personas are kept.
+- the **Agent 人设** entry in settings;
+- `cat ~/.dsh/dsh-agent-persona/state.json` — the load heartbeat: which module was loaded, how many personas,
+  where the store is.
 
-There is also `bash scripts/install.sh` (or `scripts/install.ps1` on Windows).
+Local install scripts live in `scripts/install.sh` and `scripts/install.ps1`.
+To remove: `dsh plugin --profile web remove dsh-agent-persona`, restart; the persona file is left alone.
 
 ## Using it
 
 ![persona list](./docs/images/settings-list.png)
 
-Hit **新建人设** → pick workspaces or sessions under 「用在哪些地方」 → flip the switch → save.
+**New persona** → add rows under reach, pick a workspace or a session → write the body → switch it on → save.
 
-- **New personas start disabled**, so adding one never changes what a session currently gets.
-- **「用在哪些地方」 is a list of rows.** Each row starts with a type — **工作区** (workspace) or **某个会话**
-  (a session) — and then you pick the actual target from a dropdown. The two types are mutually exclusive: flip
-  a row from workspace to session and that row's value is cleared.
-- The workspace dropdown comes from DSH's workspace list (with session counts); the session dropdown lists
-  DSH's sessions newest-first with **title**, working directory and a "3 minutes ago" stamp — so you do not need
-  to know what a session id is, you recognise the session by its title. Titles come from DSH's own session
-  projections (the same text the sidebar shows); a session that has no title yet is labelled with its first
-  prompt (or its latest one) — all three values come out of a **single** file read, never a session log.
-- For prefix / regex / substring matching, choose **自己输入…** and the row becomes a text input.
-- A collapsed card lists its scope on a **second line**, workspaces and sessions apart, using workspace and
-  session names (hover for the raw path / rule); a persona with no rows reads 「默认：…」.
-- **The more specific rule wins**: a session-id rule beats a workspace rule, and an exact value beats a prefix / regex. List order only breaks ties between equally specific rules (reordering lives in the card's `⋯` menu). So a persona scoped to one exact session beats one scoped to the whole directory, even when it sits lower in the list.
-- **A persona with no rows is the default persona**: it takes every session the personas above did not claim.
-  Keep it at the bottom.
-- The other way round, if somewhere should get **no** persona: give it a row and leave the text empty. An empty
-  winner injects nothing.
+- A **new persona starts disabled**, so adding one changes nothing until you say so.
+- Reach is a list of rows. Each row picks a kind (**workspace directory** or **a session**) and then the target
+  from a dropdown; switching a row's kind clears its value.
+- The dropdowns come from DSH's own workspace and session lists — sessions carry their **title**, working
+  directory and "minutes ago", so you do not need to know a session id.
+- Boundaries like prefixes and regexes are available through **type it yourself…**.
+- A persona with **no rows applies nowhere** (it is a draft) unless it is marked as the default.
 
-An expanded card:
+### The 人设 tab on a conversation
 
-![expanded editor](./docs/images/settings-editor.png)
+**人设 / 提示词 / 管理**:
 
-## One persona per place
+- **人设** — which persona matched, why (a rule or the default), the body as Markdown, and an inline editor
+  (name, default switch, injection mode, body). Editing shows 未保存 · 点击保存 in the card header.
+- **提示词** — the prompt this session **actually sent**, with rendered/source views, copy and refresh. With no
+  persona matched it shows DSH's own prompt verbatim.
+- **管理** — the same cards as the settings page, in place.
 
-A workspace or a session belongs to **exactly one** persona. Pointing a new persona at a place takes it away from
-whoever held it, and the save reports which persona lost it. (Rows using prefix / regex / contains cannot be
-compared statically, so for those the first match in list order still wins.)
+### The three preferences
 
-The picker also shows occupancy: workspaces and sessions already claimed are labelled 「已被「X」使用」.
+| Switch | Default | Meaning | Takes effect |
+|---|---|---|---|
+| 编辑后自动保存 | off | Save the editor about a second after typing stops | Immediately; rule rows (workspace/session) deliberately do **not** autosave, so a half-made choice is never stored |
+| 在对话页显示「人设」标签 | on | Register the conversation view or not | Immediately (registered/unregistered at runtime) |
+| 注册到 dsh-better-sidebar | on | Register the card with the sidebar plugin | Immediately; **not shown at all when that plugin is absent** |
 
-Once a session is picked, the button next to the picker opens that session's conversation as chat bubbles —
-your input on the right, the agent's replies on the left. One window (a few hundred events) is read and shown with
-an "已显示 N 条" count, and 继续加载 (load more) reads the next window only if you ask; the whole log is never read
-up front.
-
-**Only what you actually typed is shown.** Everything else that arrives on the user side is injected by plugins —
-workspace instructions (`AGENTS.md`), runtime-context snapshots, the skill catalog, goal rounds — and one
-`AGENTS.md` injection measured 13k characters. Those are hidden, and the dialog header just says 「已隐藏 N 条插件
-注入内容」 instead of filling the view with text you never wrote.
-
-Each message is capped at 4000 characters (marked 已截断 when clipped), and every row in the picker shows a short
-session id plus its age on the right, so two sessions with the same title stay tellable apart.
+Preferences live in the persona file's `prefs` field — not in the browser — so they share the data's scope. The
+browser keeps only a mirror, used to decide at load whether to register the views.
 
 ## Injection mode: append or replace
 
 | Mode | Effect |
 |---|---|
-| **append** (default) | keep DSH's own identity line and put the persona right after it |
-| **replace** | drop DSH's own identity line and use the persona alone |
+| **Append** (default) | DSH's own identity sentence stays; the persona follows it |
+| **Replace** | DSH's identity sentence and the deployment's own persona line are dropped; only this persona remains |
 
-`replace` only touches the persona **the deployment itself wrote**: if an agent preset shadowed that section with
-its own persona, the plugin leaves it alone — someone else's identity wins.
+Replace only touches what the deployment itself wrote. If an Agent preset shadows that section in its own scope,
+the plugin leaves it alone — someone else's identity wins.
 
 ## How matching works
 
-On every prompt assembly the host walks the list once:
+On every assembly:
 
-1. a disabled persona is skipped;
-2. in list order, the first persona with **any** matching row wins;
-3. a persona with no rows is the default persona and claims everything left;
-4. if the winner's text is empty, nothing is injected;
-5. if nothing matches, the section renders empty, gets dropped, and the session keeps its stock DSH prompt.
+1. disabled personas are skipped;
+2. any matching row makes a persona a candidate, compared by specificity (session id 3 vs workspace 1; exact beats
+   prefix/contains/regex);
+3. equal specificity falls back to list order (`⋯` → move up/down);
+4. a persona with **no rows does not take part** (draft), unless it is the marked default;
+5. nothing matched → use the default persona if one is marked, otherwise inject nothing;
+6. a winner whose body is empty injects nothing — that is how you say "no persona here".
 
-Of the four match modes only `完全一致` (exact) normalises paths (`/a/project/` equals `/a/project`); `开头是`
-(prefix), `包含` (contains) and `正则匹配` (regex) compare the raw string you typed. An empty value, a broken
-regex, or a session that lacks the compared field all count as "no match" and never throw.
+Only `exact` normalises paths (`/a/project/` equals `/a/project`); `prefix`, `contains` and `regex` compare the
+string you typed. Empty values, a broken regex, or a missing field on the session simply do not match — never an
+error.
 
-## Where the files are
+## Files and configuration
 
 ```
 ~/.dsh/dsh-agent-persona/
-├── personas.json   # the data, mode 600, written atomically
+├── personas.json   # personas + preferences, mode 600, written atomically
 └── state.json      # load heartbeat, rewritten on every load
 ```
 
-Persona text may use `{{model}}` and `{{cwd}}`; they are substituted at render time. Any other `{{...}}` is
-stripped — an unregistered variable would make the whole assembly throw, so this is guarded.
+The body may use `{{model}}` and `{{cwd}}`; other `{{...}}` are de-braced (an unregistered variable would make the
+whole assembly throw, so it is guarded here).
 
-The data file is re-read on every assembly when its mtime changes: an edit applies to the next message.
+Configuration (a Schemastery schema, validated at load — a wrong type **fails the load** instead of being ignored):
 
-## Which model AI rework uses
+| Config | Default | Meaning |
+|---|---|---|
+| `storePath` | `''` | Where personas live; empty means `$DSH_HOME/dsh-agent-persona/personas.json` |
+| `tuneProvider` | `''` | Provider for the AI-tuning button; empty means DSH's current model |
+| `tuneModel` | `''` | Model id for the same |
 
-By default it uses **the model DSH itself is set to use** (the host's `agentDefaultModel`), preselected in the
-page's dropdown. To pin a different model for one deployment, override the row in the profile's user patch
-layer (**do not** insert it a second time):
+### One store per profile (optional)
+
+The store is **global by default** (`$DSH_HOME/dsh-agent-persona/personas.json`, the same convention other plugins
+use for their state), so profiles on one machine share one set of personas. To separate a profile, override the
+path in **that profile's** `cordis.patch.yml` (override the field — do **not** insert another row):
 
 ```yaml
-# ~/.dsh/profiles/web/cordis.patch.yml
+# ~/.dsh/profiles/<profile>/cordis.patch.yml
 - id: agent-persona
   config:
-    tuneProvider: your-provider
-    tuneModel: your-model-id
+    storePath: /Users/you/.dsh/profiles/<profile>/personas.json
 ```
 
-The same row also accepts `storePath` if the data should live elsewhere. The model only ever produces a
-proposal: it lands in the editor when you hit 采用/追加, and is written to disk only when you save.
+`DSH_HOME` isolates everything at once (sessions, other plugins' state). The path in force is always on the
+Agent 人设 page (`保存在 …`), so it is never a mystery which file you are editing.
 
-## Things you should know
+## Honest notes
 
-- **A persona is a behavioural constraint, not a security boundary.** It steers the model; it does not stop the
-  model from running tools.
-- `personas.json` is an **ordinary file** — any session with file tools can write it. This plugin registers no
-  `tools.guard`. If you genuinely need "sessions inside the workspace cannot change the persona", do it at the
-  machine level (`chmod 400` with a different owner, or run DSH in a restricted sandbox).
-- When several personas match, only the first wins — nothing is concatenated. Concatenation was considered and
-  dropped: hard to predict, hard to debug.
-- Matching is a linear scan. Dozens of personas are fine; hundreds would need a redesign.
-- Install it once per profile. Two rows sharing the same id make the composition unbootable.
+- **A persona is a behavioural constraint, not a security boundary.** It shapes what the model says; it does not
+  stop tools.
+- `personas.json` is an **ordinary file**: any session with file tools can write it. This plugin does **not**
+  register a `tools.guard`. If you need "a conversation inside the workspace cannot change the persona", do it at
+  the machine level (`chmod 400` plus a different owner, or a restricted sandbox).
+- Only the **first** match is used — no concatenation. Matching is a linear scan; dozens of rules are fine,
+  hundreds want a redesign.
+- Install once per profile: two rows with the same id in one process make the composition fail.
+- **Test boundary**: the suite is unit tests plus source audits (134 host assertions, 15 client assertions, and a
+  generated-artifact drift check). It does not drive a browser — UI behaviour is checked by hand today.
 
 ## Development
 
+Sources are TypeScript; `lib/` is build output (not in git, built by `prepare` before `npm publish`):
+
 ```
-lib/index.js      host half: store, matching, section, remote service (this is the source, no build step)
-lib/client.js     client half: the settings page, a hand-written __ModuleLoader__ module
-test/             89 assertions, Node built-ins only
-docs/             architecture, development notes, design decisions
-scripts/          installers
+src/index.ts       host half: store, matching, the system-prompt section, the remote service
+src/client.ts      client half: settings page + session view + sidebar card (bundled to lib/client.js)
+src/endpoints.ts   single source for the remote surface (generates src/remote.ts and src/typert.ts)
+scripts/           the generator and install scripts
+test/              unit tests and source audits
+docs/              architecture, development notes, design decisions
 ```
 
 ```bash
-npm test        # run the assertions
-npm run check   # syntax check both halves
-dsh --profile web --dump-config | grep -c 'id: agent-persona'   # composition self-check, prints 1
+npm install
+npm run build        # generate:remote → tsc → esbuild (writes lib/)
+npm run typecheck    # both tsconfigs, no errors
+npm test             # 134 + 15 assertions plus the generated-artifact drift check
+dsh --profile web --dump-config | grep -c 'id: agent-persona'   # composition self-check, expects 1
 ```
 
-A few things to know before you edit code:
+How edits take effect:
 
-- `lib/client.js` **content** changes recompose the client artifact — just refresh the page. Do not rename the
-  file: a new name is not recomposed.
-- `lib/index.js` **content** changes are **not** reloaded (ESM caches modules by URL). To iterate without a
-  restart, point the patch row at a new file name; otherwise restart `dsh web`.
-- Anything in `dsh.bundle.patch` or the profile's `bundles` needs a restart.
+- **`src/**` always needs `npm run build`** — `lib/` is output.
+- Changing the **content** of the client artifact: the client recomposes, so **refresh the page**; do not rename
+  the file.
+- Changing the **content** of the host artifact: ESM caches modules by URL, so it does **not** reload — restart
+  `dsh web`.
+- Changes to `dsh.bundle.patch` or the profile's `bundles`: restart.
+- Never hand-edit the generated `src/remote.ts` / `src/typert.ts`: edit `src/endpoints.ts` and run
+  `npm run generate:remote`; `npm test` fails if they drift.
 
-More detail: [docs/development.md](./docs/development.md) and [docs/architecture.md](./docs/architecture.md).
+More in [docs/development.md](./docs/development.md) and [docs/architecture.md](./docs/architecture.md).
 
 ## License
 
-Apache-2.0 — see [LICENSE](./LICENSE).
+Apache-2.0, see [LICENSE](./LICENSE).

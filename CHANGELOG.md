@@ -6,6 +6,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A 人设 tab on the conversation page**: which persona the session matched, the system prompt it actually sent
+  (rendered and source views), and the full management UI in place.
+- **An explicit default persona** (`默认人设`): it takes every session no reach rule claimed, and only one persona
+  can hold the flag — marking a new one releases the previous.
+- **Interface preferences** — `编辑后自动保存`, `在对话页显示「人设」标签`, `注册到 dsh-better-sidebar` — stored in the
+  persona file's `prefs` field, so they share the data's scope; the browser keeps only a load-time mirror.
+- **A sidebar card** for `dsh-better-sidebar`, registered through that plugin's own service. The switch that
+  controls it is **not shown at all** when that plugin is absent.
+- **A Schemastery config**: `storePath`, `tuneProvider`, `tuneModel`, validated when the row loads.
+- **TypeScript sources with a build**: `src/**` compiles to `lib/`, and a generator derives the remote artifacts
+  (`src/remote.ts`, `src/typert.ts`) from the single endpoint list in `src/endpoints.ts`; `npm test` fails if the
+  generated files drift.
+
+### Changed
+
+- **A persona with no reach applies nowhere.** It used to act as a catch-all; a place-less persona is a draft now,
+  and where nothing matched the harness prompt stands. `默认人设` is the explicit way to ask for a fallback.
+- **Replace mode also drops the harness identity line**, not only the deployment's persona line.
+- Display preferences take effect immediately rather than on the next page load: the conversation view and the
+  sidebar card are registered and unregistered at runtime.
+
+### Fixed
+
+- The remote manifest is generated in the shape the mount consumes: an `id` per descriptor, a strict input codec,
+  `parameters: []` for the reads that take none, and the service name `agentPersona`.
+- The default flag survives a store round trip again — the reader no longer drops it — and a save whose payload
+  omits the flag keeps the stored value instead of clearing it.
+- The session view's own draft and dirty check cover the default flag, and its switch no longer calls a method
+  that only the settings component has. Together those made the switch look inert and let a save turn it off.
+
 ## [0.1.0] - 2026-09-17
 
 ### Fixed
