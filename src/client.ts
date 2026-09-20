@@ -109,6 +109,11 @@ window.__ModuleLoader__.load({
  */
 let sidebarAvailable = false
 
+/**
+ * The store is the source of truth for preferences; this mirror exists only because the
+ * decision to register the tab and the sidebar seats is made at load, before any host call can
+ * answer. Every view that arrives refreshes it, so the next load agrees with the file.
+ */
 const readPrefs = () => {
       try {
         return { ...DEFAULT_PREFS, ...JSON.parse(window.localStorage?.getItem(PREF_KEY) ?? '{}') }
@@ -1058,6 +1063,7 @@ const since = (timestamp) => {
         this.onChange({ busy: 'load', error: '' })
         try {
           const view = this.unwrap(await api.listPersonas())
+          if (view?.prefs !== undefined && view?.prefs !== null) writePrefs(view.prefs)
           const wanted = keepOpen === true ? this.state.openId : undefined
           const persona = wanted === undefined ? undefined : (view.personas || []).find((item) => item.id === wanted)
           this.onChange({
@@ -1350,6 +1356,23 @@ const since = (timestamp) => {
       /** Persist one interface preference. The two position switches apply on the next page load. */
       setPref(patch) {
         const next = writePrefs(patch)
+        // Persist through the host so the preference lives in the same file as the personas; the
+        // local mirror above only feeds the next load's registration decision.
+        const api = this.api()
+        if (api !== undefined && typeof api.savePrefs === 'function') {
+          void api.savePrefs(patch).then((result) => {
+            const view = this.unwrap(result)
+            const stored = view?.prefs
+            if (stored !== undefined && stored !== null) {
+              writePrefs(stored)
+              this.onChange({ prefs: { ...next, ...stored }, view })
+              return
+            }
+            this.onChange({ view })
+          }).catch((error) => {
+            this.onChange({ status: `偏好未写入存储（只在本浏览器生效）：${String((error && error.message) || error)}` })
+          })
+        }
         const needsReload = ('showTab' in patch || 'showSidebar' in patch)
         this.onChange({
           prefs: next,

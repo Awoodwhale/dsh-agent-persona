@@ -95,7 +95,7 @@ const TUNE_MODES = new Set(['polish', 'expand', 'compress', 'draft'])
 
 // ─────────────────────────────────────────────────────────── store
 
-const emptyStore = () => ({ version: STORE_VERSION, personas: [] })
+const emptyStore = () => ({ version: STORE_VERSION, personas: [], prefs: normalizePrefs(undefined) })
 
 /**
  * Move one persona to an absolute position (what a drag-and-drop emits).
@@ -174,6 +174,19 @@ const normalizePersona = (raw) => ({
  * @param warn - diagnostic sink.
  * @returns the v2 store plus a migration report (empty when nothing moved).
  */
+/**
+ * Interface preferences live in the store, next to the personas, so one file carries everything the
+ * plugin remembers and two deployments pointed at different files are fully independent. The two
+ * display switches default to on: a fresh install shows the page everywhere until told otherwise.
+ */
+const DEFAULT_PREFS = { autosave: false, showTab: true, showSidebar: true }
+
+export const normalizePrefs = (raw) => ({
+  autosave: raw?.autosave === true,
+  showTab: raw?.showTab !== false,
+  showSidebar: raw?.showSidebar !== false,
+})
+
 const loadStore = (storePath, warn) => {
   let parsed
   try {
@@ -186,7 +199,7 @@ const loadStore = (storePath, warn) => {
     warn(`${storePath} is not a persona store; starting from an empty one`)
     return emptyStore()
   }
-  return { version: STORE_VERSION, personas: parsed.personas.map(normalizePersona) }
+  return { version: STORE_VERSION, personas: parsed.personas.map(normalizePersona), prefs: normalizePrefs(parsed.prefs) }
 }
 
 const persist = (store, storePath) => {
@@ -928,6 +941,15 @@ class WorkspacePersonaService extends TypertRemoteService {
     }
   }
 
+  /** Merge one or more interface preferences and return the refreshed view. */
+  async savePrefs(input) {
+    try {
+      return this.runtime.savePrefs(input)
+    } catch (error) {
+      return { error: `savePrefs failed: ${String((error && error.stack) || error)}` }
+    }
+  }
+
   /** Create (no `id`) or update (with `id`) one persona. */
   async savePersona(input) {
     try {
@@ -1174,6 +1196,7 @@ export function apply(ctx, config = {}) {
     return {
       version: STORE_VERSION,
       storePath,
+      prefs: normalizePrefs(reload().prefs),
       sectionName: SECTION_NAME,
       sectionOrder: order,
       allowedVariables: [...ALLOWED_VARIABLES],
@@ -1210,6 +1233,14 @@ export function apply(ctx, config = {}) {
 
   const runtime = {
     view,
+    /** Merge preferences into the store; every field is optional so one switch can be saved. */
+    savePrefs(input) {
+      const current = reload()
+      current.prefs = normalizePrefs({ ...current.prefs, ...(input ?? {}) })
+      persist(current, storePath)
+      info(`preferences saved: ${JSON.stringify(current.prefs)}`)
+      return view()
+    },
     save(input) {
       const next = normalizeInput(input)
       const current = reload()

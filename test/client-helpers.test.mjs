@@ -213,4 +213,10 @@ assert.equal(setBody.includes('this.patch('), false, 'and the settings component
 assert.ok(pvBody.includes('patch(patch) {'), 'the view has patch()')
 assert.ok(setBody.includes('patchDraft(patch'), 'the settings component has patchDraft()')
 
+
+// ── preferences live in the store file with the personas; localStorage is only the load-time mirror
+assert.ok(source.includes('typeof api.savePrefs === \'function\''), 'a preference save goes through the host')
+assert.ok(source.includes('writePrefs(view.prefs)'), 'and every view refreshes the local mirror')
+assert.ok(source.includes('store is the source of truth for preferences'), 'which the comment states, so nobody mistakes the mirror for the truth')
+
 console.log(JSON.stringify({ ok: true, clientChecks: 15 }))

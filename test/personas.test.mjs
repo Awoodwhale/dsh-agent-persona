@@ -546,6 +546,18 @@ assert.throws(() => mod.Config({ storePath: 42 }), 'while a wrong type is reject
   assert.equal(merged.text, 'T2', 'while the mentioned fields still change')
 }
 
+
+// ── interface preferences live in the store with the personas, so one file carries everything the
+// plugin remembers and two deployments pointed at different files are fully independent
+assert.deepEqual(mod.normalizePrefs(undefined), { autosave: false, showTab: true, showSidebar: true },
+  'the display switches default to on: a fresh install shows the page everywhere')
+assert.deepEqual(mod.normalizePrefs({}), { autosave: false, showTab: true, showSidebar: true }, 'and an empty object means the same')
+assert.deepEqual(mod.normalizePrefs({ autosave: true, showTab: false, showSidebar: false }),
+  { autosave: true, showTab: false, showSidebar: false }, 'while explicit values are kept')
+assert.deepEqual(mod.normalizePrefs({ showTab: 'yes', autosave: 1, showSidebar: 0 }),
+  { autosave: false, showTab: true, showSidebar: true },
+  'autosave needs exactly true; a display switch turns off only on exactly false, so junk means on')
+
 console.log(JSON.stringify({
   ok: true,
   checks: 134,

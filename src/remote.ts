@@ -44,5 +44,6 @@ export const RPC_REMOTE = {
     method("sessionPrompt", withInput()),
     method("tunePersona", withInput()),
     method("listModels", []),
+    method("savePrefs", withInput()),
   ],
 }

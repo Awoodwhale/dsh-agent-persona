@@ -176,3 +176,19 @@ dsh --profile web --dump-config | grep -c 'id: agent-persona'   # 组合自检�
 ## 许可
 
 Apache-2.0，见 [LICENSE](./LICENSE)。
+
+### 每个 profile 用自己的人设文件（可选）
+
+人设数据默认是**全局一份**：`$DSH_HOME/dsh-agent-persona/personas.json`（与其它插件的状态目录同一约定），
+所以同一台机器上的多个 profile 共用同一份人设，界面偏好也随它一起存进这个文件。
+
+要让某个 profile 独立，在该 profile 的 `cordis.patch.yml` 里给它自己的路径即可：
+
+```yaml
+- id: agent-persona
+  config:
+    storePath: /Users/you/.dsh/profiles/<该 profile 名>/personas.json
+```
+
+也可以用 `DSH_HOME` 环境变量把整个 `~/.dsh` 指向别的目录（那样连会话记录、其它插件状态一起隔离）。
+当前生效的文件路径始终显示在「Agent 人设」页面上（`保存在 …`），不会出现"改了半天不知道改的是哪一份"。

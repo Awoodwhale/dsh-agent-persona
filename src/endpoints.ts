@@ -23,6 +23,7 @@ export const RPC_ENDPOINTS = [
   'sessionPrompt',
   'tunePersona',
   'listModels',
+  'savePrefs',
 ] as const
 
 /** The three reads that take no argument. Everything else receives one JSON object. */
