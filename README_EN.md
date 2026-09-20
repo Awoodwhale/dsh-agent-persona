@@ -76,7 +76,7 @@ To remove: `dsh plugin --profile web remove dsh-agent-persona`, restart; the per
 
 ## Using it
 
-![persona list](./docs/images/settings-list.png)
+![persona list](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/settings-list.png)
 
 **New persona** → add rows under reach, pick a workspace or a session → write the body → switch it on → save.
 
@@ -102,7 +102,7 @@ replies on the left.
 
 ### The 人设 tab on a conversation
 
-![session view](./docs/images/view-persona.png)
+![session view](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/view-persona.png)
 
 **人设 / 提示词 / 管理**:
 

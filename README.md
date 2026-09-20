@@ -68,7 +68,7 @@ dsh plugin --profile web add dsh-agent-persona
 
 ## 用起来
 
-![人设列表](./docs/images/settings-list.png)
+![人设列表](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/settings-list.png)
 
 点 **新建人设** → 在「适用范围」里加行，选工作区或会话 → 写正文 → 打开启用开关 → 保存。
 
@@ -84,7 +84,7 @@ dsh plugin --profile web add dsh-agent-persona
 
 展开一张卡是这样：
 
-![展开编辑](./docs/images/settings-editor.png)
+![展开编辑](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/settings-editor.png)
 
 ### 看这条会话聊了什么
 
@@ -98,7 +98,7 @@ dsh plugin --profile web add dsh-agent-persona
 
 ### 对话页的「人设」标签
 
-![会话视图](./docs/images/view-persona.png)
+![会话视图](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/view-persona.png)
 
 选中一条会话后，对话页顶部有 **人设 / 提示词 / 管理** 三个面板：
 
