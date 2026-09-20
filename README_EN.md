@@ -52,6 +52,10 @@ workspace cannot touch this layer.
 
 ## Install
 
+Supported DSH releases: **0.1.5-rc.1 / 0.1.5-rc.2** (declared in `package.json` under `dsh.compatibility`).
+Earlier releases have neither the slot generation nor the remote gateway this plugin needs, so installing there
+does nothing visible.
+
 ```bash
 dsh plugin --profile web add dsh-agent-persona
 ```
