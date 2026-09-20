@@ -84,12 +84,14 @@ assert.deepEqual(misordered, [], `used before declaration in the view render: ${
 assert.ok(declared.length > 3, 'and the check found the render locals')
 
 
-// ── the sidebar is adapted through the sidebar plugin's own service, and only through it:
-// dsh-better-sidebar owns the tab list (sidebarRightTabs.register + a guide entry is what
-// appears there), and its absence must leave the plugin untouched.
-assert.ok(source.includes("ctx.inject(['sidebarRightTabs']"), 'the sidebar tab service is injected')
-assert.ok(source.includes('guide: ['), 'with a guide entry, which is what the sidebar lists')
-assert.ok(source.includes('id: NS,') && source.includes('kind: NS,'), 'registered under our own id and kind (the NS constant)')
+// ── the sidebar card goes through the sidebar plugin's own service, the way the working third-party
+// plugin in this deployment does. sidebarRightTabs is not a path a plugin can use: dsh-context registers
+// through it and its card is missing from the sidebar's 侧边栏内容 list.
+assert.ok(source.includes("ctx.get('betterSidebar')"), 'the sidebar service is resolved')
+assert.ok(source.includes('better.registerTab({'), 'and the card registered through its registerTab')
+assert.ok(source.includes("title: () => 'Agent 人设'"), 'with our own title')
+assert.equal(source.includes("ctx.inject(['sidebarRightTabs']"), false, 'the unusable path is gone')
+assert.ok(source.includes('id: NS,'), 'registered under our own id (registerTab takes no kind)')
 for (const gone of ['sidebar.footer.action', 'shell.overlay', 'PersonaFooterAction', 'PersonaOverlay']) {
   assert.equal(source.includes(gone), false, `${gone} must not come back: the sidebar owns its own entry points`)
 }
@@ -131,7 +133,7 @@ assert.ok(source.includes('clearTimeout(this.autosaveTimer)'), 'and its timer is
 
 // ── the sidebar switch belongs to the sidebar plugin being installed
 assert.ok(source.includes('let sidebarAvailable = false'), 'availability starts false')
-assert.ok(source.includes('sidebarAvailable = tabs !== undefined'), 'and is set from the service the inject hands over')
+assert.ok(source.includes('typeof better.registerTab === \'function\''), 'and is set from the sidebar service that is actually usable')
 assert.ok(source.includes('syncSidebarModule = () => {'), 'with a synchroniser the preference can call')
 assert.equal(/sidebarAvailable[\s\n]*\?\s*h\(Switch/.test(source), false, 'the switches are always rendered, never gated on availability')
 
