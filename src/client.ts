@@ -2940,24 +2940,35 @@ const since = (timestamp) => {
       // Third-party plugins register their sidebar card through the sidebar plugin's own service
       // (`betterSidebar.registerTab`) — that is the call the working plugins use, and it is what puts
       // the card into the sidebar's own 侧边栏内容 list, where the user can also toggle it.
-      // The preference decides whether the card exists at all, so the switch acts at once.
+      //
+      // The service has to be *awaited*, not read once. Plugin load order is not guaranteed, so after a
+      // restart our client half can apply before the sidebar plugin provides its service; reading it once
+      // and giving up left the card missing until the switch was toggled by hand, while the switch itself
+      // still read `true` from the store's preferences — a different source — and looked correct.
       {
         let disposeTab
-        syncSidebarModule = () => {
+        /** The service, once it exists. Kept so the preference switch can re-register without re-resolving. */
+        let sidebarService
+        const resolveSidebar = (from = undefined) => {
+          try {
+            return (from ?? ctx).get('betterSidebar')
+          } catch {
+            return undefined
+          }
+        }
+        const dropTab = () => {
           if (typeof disposeTab === 'function') {
             disposeTab()
             disposeTab = undefined
           }
+        }
+        const mountTab = (service) => {
+          sidebarService = service
+          dropTab()
           if (readPrefs().showSidebar === false) return
-          let better
-          try {
-            better = ctx.get('betterSidebar')
-          } catch {
-            better = undefined
-          }
-          sidebarAvailable = better !== undefined && better !== null && typeof better.registerTab === 'function'
+          sidebarAvailable = service !== undefined && service !== null && typeof service.registerTab === 'function'
           if (sidebarAvailable !== true) return
-          disposeTab = better.registerTab({
+          disposeTab = service.registerTab({
             id: NS,
             title: () => 'Agent 人设',
             order: 30,
@@ -2965,7 +2976,24 @@ const since = (timestamp) => {
             component: SidebarPersonaView,
           })
         }
-        syncSidebarModule()
+        // The switch calls this: it acts on the preference either way, and re-registers when it is on again.
+        syncSidebarModule = () => mountTab(sidebarService ?? resolveSidebar())
+
+        const present = resolveSidebar()
+        if (present !== undefined) {
+          mountTab(present)
+        } else if (typeof ctx.inject === 'function') {
+          // Wait for the provider instead of giving up: this is the path a restart takes whenever the
+          // sidebar plugin loads second.
+          ctx.inject(['betterSidebar'], (sidebarCtx) => {
+            const service = resolveSidebar(sidebarCtx)
+            if (service === undefined) return
+            sidebarCtx.effect(() => {
+              mountTab(service)
+              return () => dropTab()
+            }, `${NS}: sidebar tab`)
+          })
+        }
       }
 
       ctx.slots.inject('settings.section', () => ctx.slots.register({

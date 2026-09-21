@@ -98,7 +98,13 @@ assert.ok(declared.length > 3, 'and the check found the render locals')
 // plugin in this deployment does. sidebarRightTabs is not a path a plugin can use: dsh-context registers
 // through it and its card is missing from the sidebar's 侧边栏内容 list.
 assert.ok(source.includes("ctx.get('betterSidebar')"), 'the sidebar service is resolved')
-assert.ok(source.includes('better.registerTab({'), 'and the card registered through its registerTab')
+assert.ok(source.includes('service.registerTab({'), 'and the card registered through its registerTab')
+// The service must be awaited rather than read once: plugin load order is not guaranteed, so after a restart
+// our client half can apply before the sidebar plugin provides its service. Reading it once and giving up left
+// the card missing until the switch was toggled by hand, while the switch still showed true from the store.
+assert.ok(source.includes("ctx.inject(['betterSidebar'], (sidebarCtx) => {"), 'a late provider is waited for')
+assert.ok(source.includes('sidebarCtx.effect(() => {'), 'and that registration is bound to the arriving context')
+assert.ok(source.includes('syncSidebarModule = () => mountTab(sidebarService ?? resolveSidebar())'), 'the switch reuses the service it already resolved, falling back to a fresh resolve')
 assert.ok(source.includes("title: () => 'Agent 人设'"), 'with our own title')
 assert.equal(source.includes("ctx.inject(['sidebarRightTabs']"), false, 'the unusable path is gone')
 assert.ok(source.includes('id: NS,'), 'registered under our own id (registerTab takes no kind)')
@@ -143,8 +149,8 @@ assert.ok(source.includes('clearTimeout(this.autosaveTimer)'), 'and its timer is
 
 // ── the sidebar switch belongs to the sidebar plugin being installed
 assert.ok(source.includes('let sidebarAvailable = false'), 'availability starts false')
-assert.ok(source.includes('typeof better.registerTab === \'function\''), 'and is set from the sidebar service that is actually usable')
-assert.ok(source.includes('syncSidebarModule = () => {'), 'with a synchroniser the preference can call')
+assert.ok(source.includes("typeof service.registerTab === 'function'"), 'and is set from the sidebar service that is actually usable')
+assert.ok(source.includes('syncSidebarModule = () => mountTab('), 'with a synchroniser the preference can call')
 assert.equal(/sidebarAvailable[\s\n]*\?\s*h\(Switch/.test(source), false, 'the switches are always rendered, never gated on availability')
 
 
