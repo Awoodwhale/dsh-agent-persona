@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-09-21
+
+### Fixed
+
+- **The sidebar card could be missing after a restart even though the switch showed it on.** The two read
+  different sources: the switch shows the store's `prefs.showSidebar` (through the remote view), while the
+  registration resolved the sidebar service once, when this plugin applied, and gave up for good if it was not
+  there yet. Plugin load order is not guaranteed, so a restart could put this plugin's client half before the
+  sidebar plugin's; the card then only came back by toggling the switch by hand. The service is now awaited —
+  registered immediately when it is already present, otherwise through `ctx.inject(['betterSidebar'], …)` and
+  bound to the arriving context, so it is torn down with the provider. The switch still acts at once.
+
+### Added
+
+- A `screenshots.json` in the repository, so storefronts show the three interface screenshots and they can be
+  replaced by pushing here rather than by opening a pull request elsewhere.
+
 ## [0.1.1] - 2026-09-20
 
 ### Added
@@ -165,5 +182,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The conversation dialog hides plugin-injected user-side content — `AGENTS.md`, runtime snapshots, the skill
   catalog, goal rounds — reporting only 「已隐藏 N 条插件注入内容」.
 
+[0.1.2]: https://github.com/Awoodwhale/dsh-agent-persona/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Awoodwhale/dsh-agent-persona/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Awoodwhale/dsh-agent-persona/releases/tag/v0.1.0
