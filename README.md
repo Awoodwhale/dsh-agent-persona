@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/dsh-agent-persona)](https://www.npmjs.com/package/dsh-agent-persona)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
-[![ci](https://github.com/awoodwhale/dsh-agent-persona/actions/workflows/ci.yml/badge.svg)](https://github.com/awoodwhale/dsh-agent-persona/actions/workflows/ci.yml)
+[![ci](https://github.com/Awoodwhale/dsh-agent-persona/actions/workflows/ci.yml/badge.svg)](https://github.com/Awoodwhale/dsh-agent-persona/actions/workflows/ci.yml)
 
 [English](./README_EN.md)
 

@@ -46,11 +46,11 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/awoodwhale/dsh-agent-persona.git"
+    "url": "git+https://github.com/Awoodwhale/dsh-agent-persona.git"
   },
-  "homepage": "https://github.com/awoodwhale/dsh-agent-persona#readme",
+  "homepage": "https://github.com/Awoodwhale/dsh-agent-persona#readme",
   "bugs": {
-    "url": "https://github.com/awoodwhale/dsh-agent-persona/issues"
+    "url": "https://github.com/Awoodwhale/dsh-agent-persona/issues"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

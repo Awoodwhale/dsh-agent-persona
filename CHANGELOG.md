@@ -165,5 +165,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The conversation dialog hides plugin-injected user-side content — `AGENTS.md`, runtime snapshots, the skill
   catalog, goal rounds — reporting only 「已隐藏 N 条插件注入内容」.
 
-[0.1.1]: https://github.com/awoodwhale/dsh-agent-persona/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/awoodwhale/dsh-agent-persona/releases/tag/v0.1.0
+[0.1.1]: https://github.com/Awoodwhale/dsh-agent-persona/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/Awoodwhale/dsh-agent-persona/releases/tag/v0.1.0
