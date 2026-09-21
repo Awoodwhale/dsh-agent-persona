@@ -15,12 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The persona store is no longer writable by tools.** A monotonic `ctx.tools.guard` refuses any call whose
   arguments point at the store and any shell command that mentions it together with a write feature
   (`>`, `rm`, `mv`, `cp`, `chmod`, `sed -i`, `tee`, `truncate`, …), while reads (`cat`, `md5`, …) stay allowed.
-  A session running under a persona can therefore no longer rewrite or delete that persona.
-- **导入 / 导出.** Export writes a portable JSON document (no local ids, no interface preferences) and also puts
-  it on the clipboard; import takes a pasted document or a chosen file, previews every persona with its size and
-  reach, and creates them through the same `savePersona` call the page uses, so a document cannot bypass the
-  host's validation. Imported personas are always created **disabled** and appended at the end, and the default
-  slot is never taken over.
+  A session running under a persona can therefore no longer rewrite or delete that persona. It is a
+  **preference** (`禁止模型改写人设文件`), on by default, and the guard reads it live so a toggle applies to the
+  next tool call. It is a behavioural limit, not a security boundary, and the switch says so on hover.
+- **导入 / 导出.** Export writes a JSON file (and copies it to the clipboard); import takes a chosen file or a
+  pasted document, **previews as you type** every persona with its size and reach, and creates them through the
+  same `savePersona` call the page uses, so a document cannot bypass the host's validation. Imported personas are
+  always created **disabled** and appended at the end, and the default slot is never taken over. The dialog
+  colours the JSON in place, draws its own thin scrollbar, and offers the replace-everything restore behind a
+  switch that names the count it would delete.
+- **A release workflow** (`.github/workflows/release.yml`): publishing a GitHub Release whose tag matches
+  `package.json` runs the same build/typecheck/test gates as CI and publishes to npm through Trusted Publishing
+  (OIDC) — no `NPM_TOKEN`, provenance attached, prereleases going to the `next` dist-tag.
 - Source links and the running version beside the settings title: GitHub and npm as two small pills carrying the
   real brand marks (inlined from simple-icons, `currentColor`, no hardcoded colours), plus the version of the
   copy actually running. The version comes from the host reading its own `package.json`, so a checkout and an npm
@@ -33,12 +39,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   12px gap, and the extra 10px margin on the preference row is gone: the counts, the switches and the cards are
   14px apart, the distance the settings shell itself uses between blocks.
 - The reported test counts are counted rather than written down: both suites wrap `assert` and report what ran,
-  so the number can no longer fall behind the file (196 host assertions, 116 client assertions).
+  so the number can no longer fall behind the file (200 host assertions, 165 client assertions).
+- **Opening and closing a card is one CSS transition**, driven by the class the card already carries: a grid row
+  interpolating between `0fr` and `1fr`, over one easing and one duration in both directions. Nothing is timed,
+  nothing is unmounted, and no transform is involved, so a fixed-position tooltip can never be captured by it.
+  The scope line under the header collapses in the opposite direction over the same span — it used to be mounted
+  and unmounted with the state, which made the whole card jump by its height the moment a card was opened.
+- The card's chevron turns exactly **90°**: it keeps one glyph, rotated by CSS. Swapping in a down-chevron as
+  well turned it twice, so an open card pointed the wrong way.
+- **Each preference explains itself on hover.** The switches used to carry their own label as a native tooltip,
+  which explained nothing: `保护人设文件` became `禁止模型改写人设文件`, and every switch now has a real tooltip
+  (also folded into its accessible name) saying what it does and what it does not.
+- **Nothing is added to Settings → General.** The switches live on the Agent 人设 page alone, which none of them
+  can hide, so that page is the way back from any of them.
 
 ### Fixed
 
 - A note about a preserved store no longer disappears the moment it becomes true: a reload only clears the
   record for a *fresh* reset, not for the stamp change caused by our own write.
+- **Tooltips opened inside the view or the sidebar card landed in the wrong place.** The entry animations filled
+  forwards, and a transform keyframe that ends at `transform: none` still leaves an identity matrix — which
+  counts as a transform, and therefore made the panel the containing block for the UI kit's fixed-position
+  bubble. Every animation now fills backwards, so the final state is the element's own style, and reduced-motion
+  covers the new ones too.
+- **`scripts/install.sh` and `scripts/install.ps1` were rewritten**: they still carried the pre-rename package
+  name, the old heartbeat path and the old page title. They now install `dsh-agent-persona`, print the version of
+  the checkout, state the real store and heartbeat paths, offer upgrade and removal, and refuse a path target
+  that does not exist — the CLI writes a `link:` dependency for whatever it is given, so a typo silently became a
+  broken profile entry.
 
 ## [0.1.0] - 2026-09-17
 

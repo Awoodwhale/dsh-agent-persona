@@ -279,5 +279,76 @@ assert.ok(source.includes("throw new Error('不是合法的 JSON')"), 'and says 
 assert.ok(source.includes('await api.savePersona({\n              name: item.name,'), 'while the write itself goes through savePersona')
 assert.ok(source.includes('enabled: false,\n              mode: item.mode,'), 'every imported persona arrives disabled')
 assert.equal(/importPersonas|api\.importPersonas/.test(source), false, 'and no new endpoint was invented for it')
+// The dialog reads as you type instead of hiding everything behind a button, and the file picker is a real
+// button driving a hidden input — a bare <input type=file> renders as the browser's own control.
+assert.equal(source.includes('previewImport()'), false, 'no button has to be pressed before anything appears')
+assert.ok(source.includes('onImportText(value) {'), 'typing goes through a debounced reader')
+assert.ok(source.includes('this.importTimer = setTimeout(() => this.parseImportText(value, seq, next), 300)'), 'which waits for the text to settle')
+assert.ok(source.includes('clearTimeout(this.importTimer)'), 'and is cleared on unmount and on close')
+// The parse must not read state: setState is asynchronous, so a file picked a moment ago would still look
+// empty and the preview would silently never appear (that is what the sequence token replaced).
+assert.ok(source.includes('parseImportText(value, seq, base) {'), 'the parse is handed its base and a token')
+assert.ok(source.includes('seq !== this.importSeq'), 'and drops a run a newer input has superseded')
+assert.equal(/parseImportText[\s\S]{0,200}?this\.state\.transfer/.test(source), false, 'so it never reads the async state back')
+assert.ok(source.includes("className: 'wsp-import-file'"), 'the file input stays hidden')
+assert.ok(source.includes('icon: h(IconFolderOpen16, {})'), 'while a real button with an icon opens it')
+assert.ok(source.includes('this.importFileRef.current?.click()'), 'by forwarding the click to that input')
+assert.ok(source.includes("input.value = ''"), 'and the same file can be chosen again after an error')
+// The JSON in that box is coloured, and its scrollbar is themed and inset rather than the platform default
+// hugging the frame.
+assert.ok(source.includes('const highlightJson = (text) => {'), 'the box has a JSON highlighter')
+assert.ok(source.includes("className: 'wsp-import-highlight'"), 'painted as a copy behind a real textarea')
+assert.ok(source.includes('color: transparent; caret-color: var(--wsp-text)'), 'so the textarea stays editable with its own text hidden')
+assert.ok(source.includes('syncImportScroll(source) {'), 'and the copy is kept in step while scrolling')
+assert.ok(source.includes('text.length > HIGHLIGHT_LIMIT'), 'with a size cut-off, so a huge paste is not re-tokenised')
+assert.ok(source.includes('.wsp-import-modal ::-webkit-scrollbar-thumb'), 'the dialog draws its own scrollbar')
+assert.ok(source.includes('padding-right: 14px'), 'and its scrollbar is inset from the frame')
+// Collapsing and expanding a card is the standard CSS accordion: one grid row interpolating 0fr to 1fr, one
+// easing and one duration for both directions, no timer, no unmount, no scripting.
+assert.ok(source.includes('grid-template-rows: minmax(0, 0fr);'), 'the closed state is a zero-height grid row')
+assert.ok(source.includes('grid-template-rows: minmax(0, 1fr);'), 'and the open state is its content height')
+assert.ok(source.includes('transition: grid-template-rows 240ms ease, visibility 0s linear 240ms;'), 'one easing and one duration close it')
+assert.ok(source.includes('transition: grid-template-rows 240ms ease, visibility 0s;'), 'and the same pair opens it')
+assert.equal(/transition:[^;]*grid-template-rows[^;]*(cubic-bezier|linear)\(/.test(source), false, 'no custom curve is layered on the row')
+assert.equal(/\.wsp-card-body-wrap[^}]*opacity/.test(source), false, 'and no second property competes with the height')
+assert.equal(/@keyframes wsp-(card-open|body-in|body-out)/.test(source), false, 'no keyframe animation is left for the card')
+assert.equal(/clearTimeout\(this\.closeTimer\)|closingId/.test(source), false, 'and no timer or closing state is left in the component')
+// The item clips its own overflow and may carry no padding or border: an fr track's minimum is its content, and
+// the body's padding was the 27px the collapse used to stall at. Its child must be plain block flow, because a
+// flex container resizes its rows on every frame as the height falls.
+assert.ok(source.includes('.wsp-card-body { display: block; overflow: hidden; min-height: 0;'), 'the item clips and stays shrinkable')
+assert.ok(source.includes('.wsp-card-body-inner { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 14px;'), 'with the padding and the flex column one level in')
+assert.ok(source.includes("h('div', { className: 'wsp-card-body-inner', key: 'inner' }, ["), 'and that inner box is what the body renders')
+assert.equal(/\.wsp-card-body-wrap[^}]*align-self/.test(source), false, 'the item is stretched, not start-aligned')
+// The wrapper must stay in the document for a transition to run, so every card renders a body.
+assert.ok(source.includes("className: 'wsp-card-body-wrap',"), 'the wrapper is rendered unconditionally')
+assert.ok(source.includes('const draft = (isOpen ? state.draft : undefined) ?? this.draftFrom(persona)'), 'a closed card falls back to the stored values')
+assert.equal(/\.wsp-card-body-wrap[^}]*transform/.test(source), false, 'no transform is animated, which would capture the fixed tooltips')
+assert.ok(source.includes('.wsp-card-body-wrap, .wsp-card-open .wsp-card-body-wrap { transition: none; }'), 'and reduced motion turns the transition off')
+// The scope line belongs to the collapsed card, so it collapses in the opposite direction — and leaves the tab
+// order with its own visibility transition, exactly like the body. Mounting it with the state instead made the
+// whole card jump by its height the instant a card opened.
+assert.ok(source.includes('.wsp-card-open .wsp-scope-lines {'), 'the scope line collapses with the card open')
+assert.ok(source.includes('grid-template-rows: minmax(0, 0fr);\n  visibility: hidden;'), 'and is hidden, not merely zero-height')
+assert.ok(source.includes('visibility 0s linear 240ms;\n}'), 'once its transition is over')
+assert.ok(source.includes('            scopeLines(persona),'), 'it is rendered unconditionally, so it can animate')
+assert.equal(/state\.openId === persona\.id \? null : scopeLines\(persona\)/.test(source), false, 'and never mounted and unmounted with the state')
+// A switch whose tooltip only repeats its own label explains nothing, and a label like 保护人设文件 does not
+// say what is protected from whom.
+assert.ok(source.includes('const Switch = ({ checked, disabled, label, hint, onChange })'), 'switches can carry an explanation')
+assert.ok(source.includes("title: hint === undefined ? label : undefined"), 'which replaces the label-as-title when present')
+assert.ok(source.includes('h(Tooltip, { label: hint, side: \'top\', delayMs: 260, maxWidth: 320 }, control)'), 'rendered as a real tooltip')
+assert.ok(source.includes("'aria-label': hint === undefined ? label : `${label}：${hint}`"), 'and folded into the accessible name')
+assert.ok(source.includes('label: \'禁止模型改写人设文件\''), 'the guard switch says who is forbidden')
+assert.ok(source.includes('模型的文件与命令工具不能写入或删除人设存储'), 'and its explanation says what is blocked')
+assert.ok(source.includes('这是行为层面的限制，不是安全边界'), 'and what it is not')
+// A filled animation that ends with a transform keeps an identity matrix, which is still a transform and
+// therefore a containing block for the kit's fixed-position tooltips: opening one inside the view or the
+// sidebar card put the bubble in the wrong place. Every animation here must fill backwards instead.
+// Comments are stripped first: this file's own explanation mentions the trap by name.
+const cssOnly = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+assert.equal(/animation:[^;]*\bboth\b/.test(cssOnly), false, 'no animation uses fill-mode both')
+assert.ok(source.includes('animation: wsp-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards'), 'the panel enters with a backwards fill')
+assert.ok(source.includes('transform: none; } }'), 'and its last keyframe is an explicit transform: none')
 
 console.log(JSON.stringify({ ok: true, clientChecks: assertions }))

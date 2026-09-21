@@ -13,8 +13,8 @@
 │   ├── remote.ts           # ⚙ 生成物：客户端 $mount 的描述符清单，勿手改
 │   └── typert.ts           # ⚙ 生成物：同一份面的清单对象，勿手改
 ├── lib/                    # ⚙ 构建产物，不进 git（.gitignore），由 npm run build 产出
-├── test/personas.test.mjs      # 宿主：196 项断言（纯函数 + 源码审计 + 用真实 ctx 驱动的 apply）
-├── test/client-helpers.test.mjs # 客户端：116 项断言（源码审计）+ 生成产物漂移校验
+├── test/personas.test.mjs      # 宿主：200 项断言（纯函数 + 源码审计 + 用真实 ctx 驱动的 apply）
+├── test/client-helpers.test.mjs # 客户端：165 项断言（源码审计）+ 生成产物漂移校验
 ├── scripts/generate-remote.mjs # 生成器：endpoints.ts → remote.ts / typert.ts
 ├── scripts/install.sh|.ps1     # 安装到某个 profile
 ├── docs/                   # 架构 / 开发 / 设计决策
@@ -28,7 +28,7 @@
 npm install
 npm run build         # generate:remote → tsc → esbuild（产出 lib/）
 npm run typecheck     # 两个 tsconfig 都不报错
-npm test              # 196 + 116 条断言，最后一步校验生成产物没有漂移
+npm test              # 200 + 165 条断言，最后一步校验生成产物没有漂移
 npm run generate:remote   # 只重新生成 src/remote.ts 与 src/typert.ts
 ```
 
@@ -104,6 +104,13 @@ npm run typecheck && npm run build && npm test
 git status --porcelain      # 应为空
 ```
 
-如果要改 `package.json` 的依赖/导出，记得同步 `docs/architecture.md` 里的契约表；
+如果要改 `package.json` 的依赖或导出，记得同步 `docs/architecture.md` 里的接口清单；
 如果远程面有增减，记得同步 `README.md` / `README_EN.md` 的功能清单（README 里不允许出现代码里没有的功能，
 也不允许代码里有而 README 没写的功能——`npm test` 的断言覆盖了其中一部分）。
+
+仓库里的文档：
+
+| 文件 | 内容 |
+|---|---|
+| [architecture.md](./architecture.md) | 当前行为的权威说明：两个半边、数据模型、组装顺序、远程面、界面座位、偏好、存储与 guard |
+| [development.md](./development.md) | 本文：结构与开发回路的说明 |

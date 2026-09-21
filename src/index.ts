@@ -179,12 +179,13 @@ const normalizePersona = (raw) => ({
  * plugin remembers and two deployments pointed at different files are fully independent. The two
  * display switches default to on: a fresh install shows the page everywhere until told otherwise.
  */
-const DEFAULT_PREFS = { autosave: false, showTab: true, showSidebar: true }
+const DEFAULT_PREFS = { autosave: false, showTab: true, showSidebar: true, guard: true }
 
 export const normalizePrefs = (raw) => ({
   autosave: raw?.autosave === true,
   showTab: raw?.showTab !== false,
   showSidebar: raw?.showSidebar !== false,
+  guard: raw?.guard !== false,
 })
 
 /**
@@ -1282,11 +1283,16 @@ export function apply(ctx, config = {}) {
     warn(`section "${SECTION_NAME}" is already registered; keeping the live one`, error)
   }
 
-  // The store is this plugin's instruction source, so no tool call may write it. The guard is monotonic:
-  // once it refuses a call nothing later can allow it. Registered through the effect, so unloading the
-  // plugin removes it instead of leaving a process-wide refusal behind.
-  ctx.effect(() => ctx.tools.guard((execution) => personaStoreGuardReason(execution, storePath)), 'agent-persona.store-guard')
-  info(`store guard registered for ${storePath}`)
+  // The store is this plugin's instruction source, so no tool call may write it. The guard is monotonic: once
+  // it refuses a call nothing later can allow it. Registered through the effect, so unloading the plugin
+  // removes it instead of leaving a process-wide refusal behind.
+  //
+  // One registration whose body reads the live preference, rather than registering and removing it: the switch
+  // then applies to the next tool call, and there is only ever one path that can leave a guard behind.
+  ctx.effect(() => ctx.tools.guard((execution) => (currentStore().prefs.guard === false
+    ? undefined
+    : personaStoreGuardReason(execution, storePath))), 'agent-persona.store-guard')
+  info(`store guard registered for ${storePath} (the 禁止模型改写人设文件 preference turns it off)`)
 
   /** Target decorated with the flags the page needs to explain itself. */
   const describeTarget = (target) => ({

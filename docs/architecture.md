@@ -154,11 +154,14 @@ host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `supe
 
 ## 6. 界面偏好
 
-三个偏好（`autosave` / `showTab` / `showSidebar`）**存在人设文件的 `prefs` 里**，与数据同域，经 `savePrefs` 写入；
-每个 `listPersonas` / `sessionPrompt` 的返回都带上它们。
+四个偏好（`autosave` / `showTab` / `showSidebar` / `guard`）**存在人设文件的 `prefs` 里**，与数据同域，经 `savePrefs` 写入；
+每个 `listPersonas` / `sessionPrompt` 的返回都带上它们。`guard` 默认开启，缺字段即视为开启
+（`raw?.guard !== false`），所以旧存储不需要迁移。
 
 浏览器侧另有一份 **localStorage 镜像**，只做一件事："加载时决定要不要注册视图" —— 那个决定发生在任何宿主调用
 能返回之前，必须同步可得。每次收到视图都会刷新镜像，所以下一次加载与文件一致；**文件是唯一真相**。
+
+`autosave` / `showTab` / `showSidebar` 由客户端消费；`guard` 只由宿主消费，见 §9。
 
 ## 7. 模型解析（AI 调优）
 
@@ -198,9 +201,13 @@ host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `supe
 不该能反过来改掉或删掉那条人设。宿主在 apply 里注册一个全局 guard：
 
 ```ts
-ctx.effect(() => ctx.tools.guard((execution) => personaStoreGuardReason(execution, storePath)), 'agent-persona.store-guard')
+ctx.effect(() => ctx.tools.guard((execution) => (currentStore().prefs.guard === false
+  ? undefined
+  : personaStoreGuardReason(execution, storePath))), 'agent-persona.store-guard')
 ```
 
+- **它是一个偏好**（§6 的 `guard`，默认开）：判定时读**实时存储**，所以切换对**下一次工具调用**生效。
+  只注册一个 guard、而不是按开关增删注册：这样只有一条可能留下残留的路径，且行为对调用方是稳定的。
 - **单调**：`ctx.tools.guard` 返回字符串即拒绝，且后面的监听器无法撤销（DSH 工具流水线里，guard 排在
   `tools/pre-execute` 之后、`tools/execute` 之前）。`undefined` 表示放行。
 - **经 ctx 注册**：用 `ctx.effect` 持有，插件卸载时 guard 随之移除，不会在进程里留下一个永久的拒绝。

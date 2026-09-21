@@ -185,7 +185,44 @@ window.__ModuleLoader__.load({
       anchor.remove()
       setTimeout(() => URL.revokeObjectURL(url), 0)
     }
-    const DEFAULT_PREFS = { autosave: false, showTab: true, showSidebar: true }
+
+    /**
+     * Split JSON into coloured runs for the import box. The box is a real textarea (so editing works), with a
+     * highlighted copy painted underneath and its own text kept transparent: a textarea cannot colour its
+     * content itself. React nodes rather than HTML, so nothing here can inject markup.
+     *
+     * Above HIGHLIGHT_LIMIT characters the copy is skipped — the run list would cost more than the colour is
+     * worth, and a pasted megabyte of JSON is not something to re-tokenise on every keystroke.
+     */
+    const HIGHLIGHT_LIMIT = 20000
+    const JSON_TOKEN = /("(?:\\.|[^"\\])*"\s*:)|("(?:\\.|[^"\\])*")|(\b-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)|(\btrue\b|\bfalse\b)|(\bnull\b)|([{}[\],:])/g
+    const highlightJson = (text) => {
+      if (typeof text !== 'string' || text === '') return null
+      if (text.length > HIGHLIGHT_LIMIT) return null
+      const nodes = []
+      let index = 0
+      let key = 0
+      JSON_TOKEN.lastIndex = 0
+      let match = JSON_TOKEN.exec(text)
+      while (match !== null) {
+        if (match.index > index) nodes.push(text.slice(index, match.index))
+        const [whole, property, string, number, bool, nul, punct] = match
+        const className = property !== undefined ? 'wsp-json-key'
+          : string !== undefined ? 'wsp-json-string'
+            : number !== undefined ? 'wsp-json-number'
+              : bool !== undefined ? 'wsp-json-bool'
+                : nul !== undefined ? 'wsp-json-null'
+                  : punct !== undefined ? 'wsp-json-punct'
+                    : undefined
+        nodes.push(className === undefined ? whole : h('span', { className, key: `t${key}` }, whole))
+        key += 1
+        index = match.index + whole.length
+        match = JSON_TOKEN.exec(text)
+      }
+      if (index < text.length) nodes.push(text.slice(index))
+      return nodes
+    }
+    const DEFAULT_PREFS = { autosave: false, showTab: true, showSidebar: true, guard: true }
     /**
      * Whether the sidebar plugin is installed. Answered by that plugin's own service at render time:
      * `betterSidebar.registerTab` is what actually puts a card into its 侧边栏内容 list, and the old
@@ -267,7 +304,7 @@ const readPrefs = () => {
 
 
     const CSS = `
-.wsp-root, .wsp-view, .wsp-chat-modal, [data-plugin="dsh-agent-persona"], [data-plugin="agent-persona"] {
+.wsp-root, .wsp-view, .wsp-chat-modal, .wsp-import-modal, [data-plugin="dsh-agent-persona"], [data-plugin="agent-persona"] {
   --wsp-line: var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.25));
   --wsp-line-soft: rgba(128, 128, 128, 0.14);
   --wsp-line-strong: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.4));
@@ -275,6 +312,9 @@ const readPrefs = () => {
   --wsp-muted: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.85));
   --wsp-muted-2: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.62));
   --wsp-accent: var(--dsw-alias-brand-primary, #58a6ff);
+  /* JSON keys need a hue of their own: brand-primary is the label colour in the default theme, which would
+     make the import box look unhighlighted. */
+  --wsp-json-key: #0a84ff;
   --wsp-mode: #7c5cff;
   --wsp-mode-soft: #a78bfa;
   --wsp-success: var(--dsw-alias-state-success-primary, #3fb950);
@@ -325,12 +365,36 @@ const readPrefs = () => {
   border-radius: 12px;
   background: var(--wsp-surface);
   box-shadow: 0 1px 1px rgba(0, 0, 0, 0.03);
-  transition: box-shadow 150ms ease, border-color 150ms ease;
+  transition: box-shadow 190ms cubic-bezier(0.4, 0, 0.2, 1), border-color 150ms ease;
 }
 /* The whole collapsed card is the hover target: background and border follow the
    card's own 12px corners, instead of a second rounded box drawn inside it. */
 .wsp-card:not(.wsp-card-open):hover { border-color: var(--wsp-line-strong); background: var(--wsp-surface-2); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
 .wsp-card-open { border-color: var(--wsp-line-strong); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.04); }
+/* Collapsing is the standard CSS accordion: a grid row that interpolates between 0fr and 1fr, with the item
+   clipping its own overflow. One easing and one duration for both directions — the browser interpolates the
+   row, so nothing here needs a measured height, a timer, or any scripting.
+
+   The item must not carry padding or a border (that is what the inner box is for): padding cannot shrink, and
+   12px + 14px + 1px was exactly the 27px the row used to stall at before the rest snapped away.
+
+   overflow: hidden on the item plus min-height: 0 is what lets the row actually reach zero; the item is
+   stretched by the grid, so its own child must be a plain block flow that keeps its natural height instead of
+   being resized every frame (a flex container would squeeze its rows as the height falls). */
+.wsp-card-body-wrap {
+  display: grid;
+  grid-template-rows: minmax(0, 0fr);
+  overflow: hidden;
+  visibility: hidden;
+  transition: grid-template-rows 240ms ease, visibility 0s linear 240ms;
+}
+.wsp-card-open .wsp-card-body-wrap {
+  grid-template-rows: minmax(0, 1fr);
+  visibility: visible;
+  transition: grid-template-rows 240ms ease, visibility 0s;
+}
+.wsp-chevron > svg, .wsp-chevron > span { transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1); }
+.wsp-chevron[aria-expanded="true"] > svg, .wsp-chevron[aria-expanded="true"] > span { transform: rotate(90deg); }
 .wsp-prefs { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 /* A store that could not be read, and the note left behind after the original was preserved. */
 .wsp-alert { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 8px; font-size: 12px; line-height: 1.6; }
@@ -339,15 +403,44 @@ const readPrefs = () => {
 .wsp-alert-reset { color: var(--wsp-warn, #d29922); border: 1px solid color-mix(in srgb, var(--wsp-warn, #d29922) 45%, transparent); background: color-mix(in srgb, var(--wsp-warn, #d29922) 12%, transparent); }
 .wsp-alert-backed-up { color: var(--wsp-muted); border: 1px solid var(--wsp-line); background: var(--wsp-surface-2); }
 .wsp-transfer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.wsp-import { display: flex; flex-direction: column; gap: 10px; }
-.wsp-import-text { width: 100%; min-height: 120px; padding: 8px 10px; border: 1px solid var(--wsp-line); border-radius: 6px; background: var(--wsp-surface-2); color: var(--wsp-text); font-family: var(--wsp-mono); font-size: 11.5px; line-height: 1.5; resize: vertical; }
-.wsp-import-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--wsp-muted); }
-.wsp-import-replace { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-.wsp-import-error { color: var(--wsp-danger, #f85149); font-size: 12px; }
-.wsp-import-preview { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; max-height: 220px; overflow-y: auto; }
-.wsp-import-preview li { display: flex; align-items: baseline; gap: 10px; padding: 5px 8px; border: 1px solid var(--wsp-line-soft); border-radius: 6px; background: var(--wsp-surface-2); font-size: 12px; }
+/* Import dialog: a source row, the text, then what was understood from it. */
+.wsp-import { display: flex; flex-direction: column; gap: 12px; }
+.wsp-import-source { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wsp-import-file { display: none; }
+/* Editor: a highlighted copy painted under a real textarea whose own text is transparent, so editing and
+   colouring both work. The two layers must share font, padding and wrapping or the caret drifts. */
+.wsp-import-editor { position: relative; border: 1px solid var(--wsp-line); border-radius: 8px; background: var(--wsp-surface-2); overflow: hidden; transition: border-color 150ms ease; }
+.wsp-import-editor:focus-within { border-color: var(--wsp-accent); }
+.wsp-import-modal .wsp-import-editor > pre, .wsp-import-modal .wsp-import-editor > textarea { margin: 0; padding: 10px 12px; border: 0; font-family: var(--wsp-mono); font-size: 11.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; tab-size: 2; }
+.wsp-import-highlight { position: absolute; inset: 0; overflow: hidden; pointer-events: none; color: var(--wsp-muted); }
+.wsp-import-text { position: relative; width: 100%; min-height: 132px; max-height: 260px; background: transparent; color: transparent; caret-color: var(--wsp-text); resize: none; display: block; }
+.wsp-import-text::placeholder { color: var(--wsp-muted-2); }
+.wsp-import-text:focus-visible { outline: none; }
+/* JSON syntax colours. Keys must not borrow the brand token: in the default theme brand-primary IS the label
+   colour, so keys would render exactly like plain text and the highlighting would be invisible. */
+.wsp-json-key { color: var(--wsp-json-key); }
+.wsp-json-string { color: var(--wsp-mode); }
+.wsp-json-number { color: var(--wsp-success); }
+.wsp-json-bool { color: var(--wsp-warn, #d29922); }
+.wsp-json-null { color: var(--wsp-muted-2); }
+.wsp-json-punct { color: var(--wsp-muted-2); }
+.wsp-import-hint { font-size: 11.5px; color: var(--wsp-muted-2); }
+.wsp-import-error { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 8px; font-size: 12px; color: var(--wsp-danger, #f85149); border: 1px solid color-mix(in srgb, var(--wsp-danger, #f85149) 40%, transparent); background: color-mix(in srgb, var(--wsp-danger, #f85149) 10%, transparent); }
+.wsp-import-error svg { width: 14px; height: 14px; flex: none; }
+.wsp-import-result { display: flex; flex-direction: column; gap: 10px; }
+.wsp-import-preview { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0 10px 0 0; list-style: none; max-height: 240px; overflow-y: auto; }
+.wsp-import-preview li { display: flex; align-items: baseline; gap: 10px; padding: 7px 10px; border: 1px solid var(--wsp-line-soft); border-radius: 8px; background: var(--wsp-surface-2); font-size: 12px; }
 .wsp-import-name { font-weight: 500; color: var(--wsp-text); }
+.wsp-import-grow { flex: 1; }
 .wsp-import-meta { color: var(--wsp-muted-2); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.wsp-import-replace { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 2px; }
+/* Scrollbars inside the dialog: thin, themed, and inset from the frame instead of hugging it. */
+.wsp-import-modal * { scrollbar-width: thin; scrollbar-color: var(--wsp-line-strong) transparent; }
+.wsp-import-modal ::-webkit-scrollbar { width: 8px; height: 8px; }
+.wsp-import-modal ::-webkit-scrollbar-track { background: transparent; margin: 6px 0; }
+.wsp-import-modal ::-webkit-scrollbar-thumb { background: var(--wsp-line-strong); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+.wsp-import-modal ::-webkit-scrollbar-thumb:hover { background: var(--wsp-muted-2); background-clip: padding-box; }
+.wsp-import-content { padding-right: 14px; }
 .wsp-prefs .wsp-switch-text { font-size: 12.5px; }
 .wsp-row-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px 3px; min-height: 44px; box-sizing: border-box; flex-wrap: wrap; border-radius: 12px 12px 0 0; }
 /* 展开后的卡片：头部吸顶，保存按钮就在手边 */
@@ -378,7 +471,10 @@ const readPrefs = () => {
 .wsp-chip-mode { color: var(--wsp-mode); border-color: color-mix(in srgb, var(--wsp-mode) 40%, transparent); background: color-mix(in srgb, var(--wsp-mode) 12%, transparent); }
 .wsp-chip-mode-strong { color: var(--wsp-mode); border-color: color-mix(in srgb, var(--wsp-mode) 60%, transparent); background: color-mix(in srgb, var(--wsp-mode) 22%, transparent); font-weight: 500; }
 .wsp-chip-warn { color: var(--wsp-warn, #d29922); border-color: color-mix(in srgb, var(--wsp-warn, #d29922) 45%, transparent); background: color-mix(in srgb, var(--wsp-warn, #d29922) 14%, transparent); }
-.wsp-card-body { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 14px; border-top: 1px solid var(--wsp-line-soft); background: var(--wsp-surface); border-radius: 0 0 12px 12px; }
+/* The box that animates must be able to reach zero height, so padding and the top border live one level in:
+   padding cannot shrink, and 12px + 14px + 1px is exactly the 27px the collapsing row used to stall at. */
+.wsp-card-body { display: block; overflow: hidden; min-height: 0; padding: 0; border: 0; background: var(--wsp-surface); border-radius: 0 0 12px 12px; }
+.wsp-card-body-inner { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 14px; border-top: 1px solid var(--wsp-line-soft); }
 .wsp-search { display: flex; align-items: center; gap: 8px; }
 .wsp-search > *:first-child { flex: 1; }
 .wsp-conflict-notice { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--wsp-warn); padding: 6px 9px; border: 1px solid color-mix(in srgb, var(--wsp-warn) 35%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--wsp-warn) 8%, transparent); }
@@ -472,7 +568,22 @@ const readPrefs = () => {
 .wsp-skeleton-chip { width: 180px; height: 12px; margin-left: auto; }
 @keyframes wsp-pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.55 } }
 .wsp-skeleton { animation: wsp-pulse 1.4s ease-in-out infinite; }
-.wsp-scope-lines { display: flex; flex-direction: column; gap: 4px; padding: 0 12px 10px 40px; }
+/* The scope line belongs to the collapsed card, so it collapses in the opposite direction from the body and
+   over the same span. Without this it appeared and vanished in a single frame, which made the whole card jump
+   by its height (34px plus the header's spacing) the instant a card was opened or closed. */
+.wsp-scope-lines {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  visibility: visible;
+  transition: grid-template-rows 240ms ease, visibility 0s;
+}
+.wsp-card-open .wsp-scope-lines {
+  grid-template-rows: minmax(0, 0fr);
+  visibility: hidden;
+  transition: grid-template-rows 240ms ease, visibility 0s linear 240ms;
+}
+.wsp-scope-lines > .wsp-scope-inner { min-height: 0; display: flex; flex-direction: column; gap: 4px; padding: 0 12px 10px 40px; }
 .wsp-scope-line { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; min-width: 0; }
 .wsp-scope-label { flex: none; font-size: 10.5px; color: var(--wsp-muted-2); }
 /* The dialog portals to <body>, so these rules are global on purpose and carry
@@ -516,9 +627,15 @@ const readPrefs = () => {
 .wsp-tab:focus-visible { outline: 2px solid var(--wsp-accent); outline-offset: 2px; }
 .wsp-tab-on { background: var(--wsp-surface); color: var(--wsp-text); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08); }
 /* Enter transitions: opacity + a 4px lift only, so nothing reflows and there is no flash.
-   Each tab renders its own keyed panel, so the animation replays on every switch. */
-.wsp-panel-area { display: flex; flex-direction: column; gap: 16px; animation: wsp-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) both; }
-.wsp-shell > .wsp-view-head, .wsp-shell > .wsp-tabs { animation: wsp-enter 200ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+   Each tab renders its own keyed panel, so the animation replays on every switch.
+
+   They fill backwards, never with fill-mode both. A filled animation keeps applying its last keyframe, and a
+   transform keyframe that ends at transform: none still leaves an identity matrix — which counts as a
+   transform. Any transform other than none makes that element the containing block for position: fixed
+   descendants, and the UI kit's tooltips are exactly that: fixed bubbles. With fill-mode both, every tooltip
+   opened inside the view or the sidebar card was positioned against the panel instead of the viewport. */
+.wsp-panel-area { display: flex; flex-direction: column; gap: 16px; animation: wsp-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+.wsp-shell > .wsp-view-head, .wsp-shell > .wsp-tabs { animation: wsp-enter 200ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
 @keyframes wsp-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 /* Reading something: a hairline bar at the top of the column, and the icon turns. */
@@ -578,6 +695,7 @@ const readPrefs = () => {
   .wsp-tab, .wsp-card-panel, .wsp-form-text, .wsp-switch-item { transition: none; }
   .wsp-spin { animation: none; }
   .wsp-progress-bar { animation: none; width: 100%; }
+  .wsp-card-body-wrap, .wsp-card-open .wsp-card-body-wrap { transition: none; }
 }
 .wsp-md { display: flex; flex-direction: column; gap: 6px; }
 .wsp-md-fallback { display: flex; flex-direction: column; gap: 4px; }
@@ -1101,18 +1219,26 @@ const since = (timestamp) => {
       className: tone === undefined ? 'wsp-badge' : `wsp-badge wsp-badge-${tone}`,
     }, children)
 
-    const Switch = ({ checked, disabled, label, onChange }) => h('label', { className: 'wsp-switch', title: label }, [
-      h('input', {
-        key: 'i',
-        type: 'checkbox',
-        checked,
-        disabled,
-        'aria-label': label,
-        onChange: (event) => onChange(event.target.checked),
-      }),
-      h('span', { key: 't', className: 'wsp-switch-track' }),
-      h('span', { key: 'l', className: 'wsp-switch-text' }, label),
-    ])
+    /**
+     * `label` is what the switch reads as on the page; `hint` is the longer explanation, shown in a real
+     * tooltip on hover or keyboard focus. Without a hint the label doubles as the native title, because a
+     * tooltip that only repeats the label explains nothing.
+     */
+    const Switch = ({ checked, disabled, label, hint, onChange }) => {
+      const control = h('label', { className: 'wsp-switch', title: hint === undefined ? label : undefined }, [
+        h('input', {
+          key: 'i',
+          type: 'checkbox',
+          checked,
+          disabled,
+          'aria-label': hint === undefined ? label : `${label}：${hint}`,
+          onChange: (event) => onChange(event.target.checked),
+        }),
+        h('span', { key: 't', className: 'wsp-switch-track' }),
+        h('span', { key: 'l', className: 'wsp-switch-text' }, label),
+      ])
+      return hint === undefined ? control : h(Tooltip, { label: hint, side: 'top', delayMs: 260, maxWidth: 320 }, control)
+    }
 
     // ── the settings page ───────────────────────────────────────────────────
 
@@ -1146,6 +1272,10 @@ const since = (timestamp) => {
         }
         this.mounted = false
         this.rootRef = React.createRef()
+        this.importFileRef = React.createRef()
+        this.importTextRef = React.createRef()
+        this.importHighlightRef = React.createRef()
+        this.importTimer = undefined
         this.onChange = (patch) => {
           if (this.mounted) this.setState(patch)
         }
@@ -1168,6 +1298,7 @@ const since = (timestamp) => {
 
       componentWillUnmount() {
         clearTimeout(this.autosaveTimer)
+        clearTimeout(this.importTimer)
         this.mounted = false
         document.removeEventListener('keydown', this.onKeyDown)
       }
@@ -1463,6 +1594,12 @@ const since = (timestamp) => {
         })
       }
 
+      /**
+       * Collapsing is a CSS transition on the card's own class, so this only flips the state: nothing is
+       * unmounted, nothing is timed, and the body stays in the document for the transition to run on. A card
+       * that is closed keeps rendering the stored values — it is clipped and out of the tab order, so those
+       * are never read — which is what keeps the body mounted without a second render.
+       */
       close() {
         const lost = this.isDirty()
         this.onChange({
@@ -1638,21 +1775,57 @@ const since = (timestamp) => {
       }
 
       openImport() {
-        this.onChange({ transfer: { text: '', preview: undefined, error: '', busy: false, replace: false } })
+        this.onChange({ transfer: { text: '', preview: undefined, error: '', busy: false, replace: false, fileName: undefined, parsing: false } })
       }
 
       closeImport() {
+        clearTimeout(this.importTimer)
         this.onChange({ transfer: undefined })
       }
 
-      previewImport() {
+      /**
+       * Reading as you type beats a button that has to be pressed before anything is visible: the preview
+       * appears on its own a moment after the text settles, and a chosen file goes through the same path.
+       *
+       * The parse is handed the transfer it should build on and a sequence token, rather than reading state:
+       * setState is asynchronous, so a parse that ran right after a file was picked would otherwise see the
+       * previous (empty) text and quietly do nothing.
+       */
+      nextImportSeq() {
+        this.importSeq = (this.importSeq ?? 0) + 1
+        return this.importSeq
+      }
+
+      /** Keep the highlighted copy exactly behind the text while the box scrolls. */
+      syncImportScroll(source) {
+        const target = this.importHighlightRef?.current
+        if (target === undefined || target === null || source === undefined || source === null) return
+        target.scrollTop = source.scrollTop
+        target.scrollLeft = source.scrollLeft
+      }
+
+      onImportText(value) {
         const transfer = this.state.transfer
         if (transfer === undefined) return
+        const next = { ...transfer, text: value, fileName: undefined, parsing: value.trim() !== '', preview: undefined, error: '' }
+        const seq = this.nextImportSeq()
+        this.onChange({ transfer: next })
+        clearTimeout(this.importTimer)
+        this.importTimer = setTimeout(() => this.parseImportText(value, seq, next), 300)
+      }
+
+      parseImportText(value, seq, base) {
+        // A newer keystroke or a closed dialog makes this run stale; the token is what makes it safe.
+        if (this.mounted !== true || seq !== this.importSeq) return
+        if (value.trim() === '') {
+          this.onChange({ transfer: { ...base, parsing: false, preview: undefined, error: '' } })
+          return
+        }
         try {
-          const preview = parseImportDocument(transfer.text)
-          this.onChange({ transfer: { ...transfer, preview, error: '' } })
+          const preview = parseImportDocument(value)
+          this.onChange({ transfer: { ...base, parsing: false, preview, error: '' } })
         } catch (error) {
-          this.onChange({ transfer: { ...transfer, preview: undefined, error: String((error && error.message) || error) } })
+          this.onChange({ transfer: { ...base, parsing: false, preview: undefined, error: String((error && error.message) || error) } })
         }
       }
 
@@ -1696,16 +1869,18 @@ const since = (timestamp) => {
       }
 
       async pickImportFile(event) {
-        const file = event?.target?.files?.[0]
+        const input = event?.target
+        const file = input?.files?.[0]
         if (file === undefined || file === null) return
         const text = await file.text()
-        const transfer = this.state.transfer ?? { preview: undefined, error: '', busy: false, replace: false }
-        try {
-          const preview = parseImportDocument(text)
-          this.onChange({ transfer: { ...transfer, text, preview, error: '' } })
-        } catch (error) {
-          this.onChange({ transfer: { ...transfer, text, preview: undefined, error: String((error && error.message) || error) } })
-        }
+        const transfer = this.state.transfer ?? { preview: undefined, error: '', busy: false, replace: false, parsing: false }
+        const next = { ...transfer, text, fileName: file.name, parsing: true, preview: undefined, error: '' }
+        const seq = this.nextImportSeq()
+        this.onChange({ transfer: next })
+        clearTimeout(this.importTimer)
+        this.parseImportText(text, seq, next)
+        // Re-arm the same input: picking the same file twice has to work (a second try after an error).
+        if (input !== undefined && input !== null) input.value = ''
       }
 
       async save() {
@@ -1944,7 +2119,8 @@ const since = (timestamp) => {
                 }
               },
               onDragEnd: () => this.onChange({ dragId: undefined, dropIndex: undefined }),
-            }, h(isOpen ? IconChevronDownOutline14 : IconChevronRightOutline14, {})),
+            // One icon, turned by CSS. Swapping the glyph as well would turn it twice, i.e. 180°.
+            }, h(IconChevronRightOutline14, {})),
             h(Dot, { key: 'd', state: dotState(persona) }),
             h('span', { className: 'wsp-pname', key: 'n', title: persona.name }, persona.name),
             h('span', { className: 'wsp-spacer', key: 'sp' }),
@@ -2043,17 +2219,23 @@ const since = (timestamp) => {
           ])
         }
 
-        const scopeLines = (persona) => h('div', { className: 'wsp-scope-lines', key: 'sl' }, (persona.targets ?? []).length === 0
-          ? [h('div', { className: 'wsp-scope-line', key: 'default' }, [
-            h('span', { className: 'wsp-scope-label', key: 'l' }, '范围'),
-            h('span', { className: persona.fallback === true ? 'wsp-chip wsp-chip-on' : 'wsp-chip wsp-chip-warn', key: 'c' }, persona.fallback === true ? '默认人设：未命中位置的会话都用它' : '未设置位置：不生效，该会话仍用 DSH 自带的 prompt'),
-          ])]
-          : [scopeLine(persona, 'workspace', '工作区'), scopeLine(persona, 'sessionId', '会话')])
+        const scopeLines = (persona) => h('div', { className: 'wsp-scope-lines', key: 'sl' }, [
+          h('div', { className: 'wsp-scope-inner', key: 'in' }, (persona.targets ?? []).length === 0
+            ? [h('div', { className: 'wsp-scope-line', key: 'default' }, [
+              h('span', { className: 'wsp-scope-label', key: 'l' }, '范围'),
+              h('span', { className: persona.fallback === true ? 'wsp-chip wsp-chip-on' : 'wsp-chip wsp-chip-warn', key: 'c' }, persona.fallback === true ? '默认人设：未命中位置的会话都用它' : '未设置位置：不生效，该会话仍用 DSH 自带的 prompt'),
+            ])]
+            : [scopeLine(persona, 'workspace', '工作区'), scopeLine(persona, 'sessionId', '会话')]),
+        ])
 
         // ── expanded editor
         const draft = state.draft
         const cardBody = (persona) => {
-          if (state.openId !== persona.id || draft === undefined) return null
+          // Always rendered, with the stored values when the card is closed: the wrapper has to stay in the
+          // document for its CSS transition to have something to run on, and the card's own class decides
+          // whether it is open. A closed body is clipped and out of the tab order, so nothing reads it.
+          const isOpen = state.openId === persona.id
+          const draft = (isOpen ? state.draft : undefined) ?? this.draftFrom(persona)
           const targets = draft.targets || []
           const knownValues = new Set([
             ...(state.targets.workspaces ?? []).map((item) => item.path),
@@ -2211,7 +2393,12 @@ const since = (timestamp) => {
             ]),
           ]) : null)
 
-          return h('div', { className: 'wsp-card-body', key: `b${persona.id}` }, [
+          // The wrapper is always in the document; the card's own `wsp-card-open` class drives its transition.
+          return h('div', {
+            className: 'wsp-card-body-wrap',
+            key: `b${persona.id}`,
+          }, [h('div', { className: 'wsp-card-body', key: 'body' }, [
+            h('div', { className: 'wsp-card-body-inner', key: 'inner' }, [
             h('div', { className: 'wsp-field-row', key: 'name' }, [
               h('div', { className: 'wsp-field', key: 'f', style: { flex: 1 } }, [
                 h('span', { className: 'wsp-label', key: 'l' }, '名称'),
@@ -2329,7 +2516,8 @@ const since = (timestamp) => {
                 }, state.busy === 'save' ? '保存中…' : '保存'),
               ]),
             ]),
-          ])
+            ]),
+          ])])
         }
 
         // Overlaps worth warning about: an exact row that an *earlier* persona's
@@ -2423,7 +2611,10 @@ const since = (timestamp) => {
             },
           }, [
             cardHead(persona, index),
-            state.openId === persona.id ? null : scopeLines(persona),
+            // Always rendered: the scope line collapses through its own CSS transition when the card opens, in
+            // the opposite direction from the body. Mounting and unmounting it instead made the whole card jump
+            // by its height the instant a card was opened or closed.
+            scopeLines(persona),
             cardBody(persona),
           ])), h('div', {
             className: 'wsp-add-row',
@@ -2543,9 +2734,34 @@ const since = (timestamp) => {
 
         const prefs = state.prefs ?? DEFAULT_PREFS
         const prefsRow = h('div', { className: 'wsp-prefs', key: 'prefs' }, [
-          h(Switch, { key: 'auto', checked: prefs.autosave === true, label: '编辑后自动保存', onChange: (next) => this.setPref({ autosave: next }) }),
-          h(Switch, { key: 'tab', checked: prefs.showTab !== false, label: '在对话页显示「人设」标签', onChange: (next) => this.setPref({ showTab: next }) }),
-          ...(sidebarProbe() === undefined ? [] : [h(Switch, { key: 'side', checked: prefs.showSidebar !== false, label: '注册到 dsh-better-sidebar', onChange: (next) => this.setPref({ showSidebar: next }) }),])
+          h(Switch, {
+            key: 'auto',
+            checked: prefs.autosave === true,
+            label: '编辑后自动保存',
+            hint: '编完正文或改完适用范围就立刻写入存储，不用再点保存。关掉后由你手动点保存。',
+            onChange: (next) => this.setPref({ autosave: next }),
+          }),
+          h(Switch, {
+            key: 'tab',
+            checked: prefs.showTab !== false,
+            label: '在对话页显示「人设」标签',
+            hint: '在每条会话顶部显示「人设」标签：能看到这条会话命中了哪条人设、实际发出去的 system prompt，并就地管理全部人设。',
+            onChange: (next) => this.setPref({ showTab: next }),
+          }),
+          ...(sidebarProbe() === undefined ? [] : [h(Switch, {
+            key: 'side',
+            checked: prefs.showSidebar !== false,
+            label: '注册到 dsh-better-sidebar',
+            hint: '把这个页面挂进 dsh-better-sidebar 的右侧栏；在它的「侧边卡片 → 侧边栏内容」里会多出「Agent 人设」。注销即刻移除。',
+            onChange: (next) => this.setPref({ showSidebar: next }),
+          })]),
+          h(Switch, {
+            key: 'guard',
+            checked: prefs.guard !== false,
+            label: '禁止模型改写人设文件',
+            hint: '打开后，模型的文件与命令工具不能写入或删除人设存储（personas.json 及其备份）；读取不受影响。关掉后模型就能直接改它。这是行为层面的限制，不是安全边界：本机上的其它程序仍可修改。',
+            onChange: (next) => this.setPref({ guard: next }),
+          }),
         ])
 
         const pendingDelete = state.confirmDelete === undefined || state.confirmDelete === null
@@ -2589,8 +2805,16 @@ const since = (timestamp) => {
         const transferRow = h('div', { className: 'wsp-transfer', key: 'transfer' }, [
           h(Button, { key: 'export', variant: 'outline', size: 'sm', disabled: view === undefined, onClick: () => void this.exportPersonas() }, '导出人设'),
           h(Button, { key: 'import', variant: 'outline', size: 'sm', disabled: view === undefined, onClick: () => this.openImport() }, '导入人设'),
-          h('span', { className: 'wsp-caption', key: 'c' }, '导出为 JSON（不含本机 id 与界面偏好）；导入一律新建并停用，不影响现有会话'),
+          h('span', { className: 'wsp-caption', key: 'c' }, '导出为一份 JSON 文件；导入的人设一律新建并停用。'),
         ])
+
+        const importSummary = transfer === undefined
+          ? ''
+          : transfer.busy === true
+            ? '正在导入…'
+            : transfer.preview === undefined
+              ? '还没有可导入的内容'
+              : `共 ${transfer.preview.length} 条 · ${transfer.preview.reduce((sum, item) => sum + item.text.length, 0)} 字 · 全部新建并停用`
 
         const importModal = transfer === undefined ? null : h(Modal, {
           key: 'import',
@@ -2599,56 +2823,85 @@ const since = (timestamp) => {
           open: true,
           onClose: () => this.closeImport(),
           title: '导入人设',
-          description: '粘贴导出的 JSON，或选择一个 .json 文件。导入的人设会追加到列表末尾、一律停用，默认人设不会被替换。',
+          description: '选一个导出的 .json 文件，或把内容粘贴到下面。导入的人设一律新建并停用，默认人设不会被替换。',
           footer: h('div', { className: 'wsp-form-actions' }, [
-            h('span', { className: 'wsp-caption', key: 'c' }, transfer.preview === undefined
-              ? '先预览，再决定是否导入'
-              : `将导入 ${transfer.preview.length} 条（全部停用）`),
+            h('span', { className: 'wsp-caption', key: 'c' }, importSummary),
             h('span', { className: 'wsp-grow', key: 'g' }),
             h(Button, { key: 'cancel', variant: 'ghost', size: 'sm', disabled: transfer.busy === true, onClick: () => this.closeImport() }, '取消'),
-            h(Button, { key: 'preview', variant: 'outline', size: 'sm', disabled: transfer.busy === true, onClick: () => this.previewImport() }, '预览'),
             h(Button, {
               key: 'apply',
               variant: 'primary',
               size: 'sm',
               disabled: transfer.busy === true || transfer.preview === undefined,
               onClick: () => void this.applyImport(),
-            }, transfer.busy === true ? '导入中…' : '确认导入'),
+            }, transfer.busy === true ? '导入中…' : transfer.preview === undefined ? '导入' : `导入 ${transfer.preview.length} 条`),
           ]),
         }, h('div', { className: 'wsp-import' }, [
-          h('textarea', {
-            key: 'text',
-            className: 'wsp-import-text',
-            spellCheck: false,
-            placeholder: '在这里粘贴 JSON，或点下面的「选择文件…」',
-            value: transfer.text ?? '',
-            onChange: (event) => this.onChange({ transfer: { ...transfer, text: event.target.value, preview: undefined, error: '' } }),
-          }),
-          h('div', { className: 'wsp-import-row', key: 'row' }, [
+          h('div', { className: 'wsp-import-source', key: 'source' }, [
             h('input', {
               key: 'file',
+              ref: this.importFileRef,
               className: 'wsp-import-file',
               type: 'file',
               accept: 'application/json,.json',
               onChange: (event) => void this.pickImportFile(event),
             }),
-            transfer.preview === undefined ? null : h('label', { className: 'wsp-import-replace', key: 'replace' }, [
-              h('input', {
-                type: 'checkbox',
-                checked: transfer.replace === true,
-                onChange: (event) => this.onChange({ transfer: { ...transfer, replace: event.target.checked } }),
-              }),
-              h('span', {}, `同时删除本机现有 ${view?.personas?.length ?? 0} 条人设（整机恢复用，不可撤销）`),
-            ]),
+            h(Button, {
+              key: 'pick',
+              variant: 'outline',
+              size: 'sm',
+              icon: h(IconFolderOpen16, {}),
+              onClick: () => this.importFileRef.current?.click(),
+            }, '选择文件'),
+            h('span', { className: 'wsp-caption', key: 'name' }, transfer.fileName ?? '或把 JSON 粘贴到下面'),
           ]),
-          transfer.error === '' || transfer.error === undefined
+          h('div', { className: 'wsp-import-editor', key: 'editor' }, [
+            h('pre', { className: 'wsp-import-highlight', key: 'hl', 'aria-hidden': 'true', ref: this.importHighlightRef },
+              highlightJson(transfer.text ?? '') ?? h('span', { className: 'wsp-import-highlight-plain' }, transfer.text ?? '')),
+            h('textarea', {
+              key: 'text',
+              className: 'wsp-import-text',
+              spellCheck: false,
+              placeholder: '{ "personas": [ … ] }',
+              value: transfer.text ?? '',
+              ref: this.importTextRef,
+              onScroll: (event) => this.syncImportScroll(event.target),
+              onChange: (event) => this.onImportText(event.target.value),
+            }),
+          ]),
+          transfer.error === undefined || transfer.error === ''
             ? null
-            : h('div', { className: 'wsp-import-error', key: 'error' }, transfer.error),
-          transfer.preview === undefined ? null : h('ul', { className: 'wsp-import-preview', key: 'preview' },
-            transfer.preview.slice(0, 40).map((item, index) => h('li', { key: `p${index}` }, [
-              h('span', { className: 'wsp-import-name' }, item.name),
-              h('span', { className: 'wsp-import-meta' }, `${item.text.length} 字 · ${item.targets.length} 条适用范围${item.droppedTargets > 0 ? `（${item.droppedTargets} 条规则没通过校验，已略过）` : ''}`),
-            ]))),
+            : h('div', { className: 'wsp-import-error', key: 'error' }, [
+              h(IconWarningOutline16, { key: 'i' }),
+              h('span', { key: 't' }, transfer.error),
+            ]),
+          transfer.parsing === true
+            ? h('div', { className: 'wsp-import-hint', key: 'parsing' }, '正在读取…')
+            : null,
+          transfer.preview === undefined
+            ? null
+            : h('div', { className: 'wsp-import-result', key: 'result' }, [
+              h('ul', { className: 'wsp-import-preview', key: 'list' },
+                transfer.preview.slice(0, 40).map((item, index) => h('li', { key: `p${index}` }, [
+                  h('span', { className: 'wsp-import-name', key: 'n' }, item.name),
+                  h('span', { className: 'wsp-import-grow', key: 'g' }),
+                  h('span', { className: 'wsp-import-meta', key: 'm' }, `${item.text.length} 字 · ${item.targets.length} 条规则${item.droppedTargets > 0 ? ` · ${item.droppedTargets} 条无效已略过` : ''}`),
+                ]))),
+              transfer.preview.length > 40
+                ? h('div', { className: 'wsp-import-hint', key: 'more' }, `只列出前 40 条，共 ${transfer.preview.length} 条`)
+                : null,
+              h('div', { className: 'wsp-import-replace', key: 'replace' }, [
+                h(Switch, {
+                  key: 'sw',
+                  checked: transfer.replace === true,
+                  label: '导入时替换现有列表',
+                  onChange: (next) => this.onChange({ transfer: { ...transfer, replace: next } }),
+                }),
+                h('span', { className: 'wsp-caption', key: 'note' }, transfer.replace === true
+                  ? `会先删除现有 ${view?.personas?.length ?? 0} 条，无法撤销`
+                  : `现有 ${view?.personas?.length ?? 0} 条保持不变`),
+              ]),
+            ]),
         ]))
 
         return h('div', rootProps, [header, healthNote, prefsRow, transferRow, searchRow, hiddenNote, conflictNotice, h('div', { className: 'wsp-cards', key: 'cards' }, cards), status, historyModal, confirmModal, importModal])

@@ -424,6 +424,21 @@ assert.equal(typeof guard({ name: 'bash', arguments: { command: `rm -f ${storePa
 assert.equal(typeof guard({ name: 'bash', arguments: { command: `jq . ${storePath} > /tmp/c.json` } }), 'string', 'a redirect that mentions the store is refused')
 assert.equal(typeof guard({ name: 'edit', arguments: { file_path: storePath, old: 'a', new: 'b' } }), 'string', 'and so is an edit')
 
+// ── the guard is a preference, so switching it off must actually let the call through: the body reads the
+// live store, which is why one registration can honour a toggle without being re-registered
+const guardOffStore = JSON.parse(readFileSync(storePath, 'utf8'))
+guardOffStore.prefs = { ...(guardOffStore.prefs ?? {}), guard: false }
+writeFileSync(storePath, JSON.stringify(guardOffStore, null, 2))
+const offStamp = new Date(Date.now() + 6000)
+utimesSync(storePath, offStamp, offStamp)
+assert.equal(guard({ name: 'write', arguments: { path: storePath, content: 'x' } }), undefined, 'with the store guard switched off, the same call is allowed')
+assert.equal(guard({ name: 'bash', arguments: { command: `rm -f ${storePath}` } }), undefined, 'including a shell removal')
+guardOffStore.prefs = { ...(guardOffStore.prefs ?? {}), guard: true }
+writeFileSync(storePath, JSON.stringify(guardOffStore, null, 2))
+const onStamp = new Date(Date.now() + 8000)
+utimesSync(storePath, onStamp, onStamp)
+assert.equal(typeof guard({ name: 'write', arguments: { path: storePath } }), 'string', 'and switching it back on refuses again')
+
 // ── a file that exists but cannot be used must be preserved before the first write replaces it
 assert.equal(backupStamp(new Date('2026-09-20T08:12:34')), '20260920-081234', 'the backup stamp is filename-safe local time')
 const salvageDir = mkdtempSync(join(tmpdir(), 'wsp-salvage-'))
@@ -605,14 +620,15 @@ assert.throws(() => mod.Config({ storePath: 42 }), 'while a wrong type is reject
 
 // ── interface preferences live in the store with the personas, so one file carries everything the
 // plugin remembers and two deployments pointed at different files are fully independent
-assert.deepEqual(mod.normalizePrefs(undefined), { autosave: false, showTab: true, showSidebar: true },
+assert.deepEqual(mod.normalizePrefs(undefined), { autosave: false, showTab: true, showSidebar: true, guard: true },
   'the display switches default to on: a fresh install shows the page everywhere')
-assert.deepEqual(mod.normalizePrefs({}), { autosave: false, showTab: true, showSidebar: true }, 'and an empty object means the same')
-assert.deepEqual(mod.normalizePrefs({ autosave: true, showTab: false, showSidebar: false }),
-  { autosave: true, showTab: false, showSidebar: false }, 'while explicit values are kept')
-assert.deepEqual(mod.normalizePrefs({ showTab: 'yes', autosave: 1, showSidebar: 0 }),
-  { autosave: false, showTab: true, showSidebar: true },
+assert.deepEqual(mod.normalizePrefs({}), { autosave: false, showTab: true, showSidebar: true, guard: true }, 'and an empty object means the same')
+assert.deepEqual(mod.normalizePrefs({ autosave: true, showTab: false, showSidebar: false, guard: false }),
+  { autosave: true, showTab: false, showSidebar: false, guard: false }, 'while explicit values are kept')
+assert.deepEqual(mod.normalizePrefs({ showTab: 'yes', autosave: 1, showSidebar: 0, guard: 0 }),
+  { autosave: false, showTab: true, showSidebar: true, guard: true },
   'autosave needs exactly true; a display switch turns off only on exactly false, so junk means on')
+assert.equal(mod.normalizePrefs(undefined).guard, true, 'the store guard is on unless it is switched off explicitly')
 
 console.log(JSON.stringify({
   ok: true,

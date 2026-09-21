@@ -34,9 +34,9 @@ wants its own identity, tone and constraints. This plugin hands each of them its
 - **A store that cannot be read is never lost quietly.** When the file exists but cannot be used, the page says
   what happened and why, and the first save copies the original to `personas.json.bak-<timestamp>` before touching
   it. If that copy fails, the write fails with it.
-- **Import / export.** Export writes a JSON document without local ids or interface preferences (and copies it to
-  the clipboard); import takes a pasted document or a chosen file, previews every persona with its size and reach,
-  and creates them **disabled** and appended at the end, never taking over the default slot.
+- **Import / export.** Export writes a JSON file (and copies it to the clipboard); import takes a chosen file or a
+  pasted document, **previews as you type** every persona with its size and reach, and creates them **disabled**
+  and appended at the end, never taking over the default slot.
 
 Three surfaces, three jobs:
 
@@ -136,13 +136,14 @@ replies on the left.
   persona matched it shows DSH's own prompt verbatim.
 - **管理** — the same cards as the settings page, in place.
 
-### The three preferences
+### The four preferences
 
 | Switch | Default | Meaning | Takes effect |
 |---|---|---|---|
 | 编辑后自动保存 | off | Save the editor about a second after typing stops | Immediately; rule rows (workspace/session) deliberately do **not** autosave, so a half-made choice is never stored |
 | 在对话页显示「人设」标签 | on | Register the conversation view or not | Immediately (registered/unregistered at runtime) |
 | 注册到 dsh-better-sidebar | on | Register the card with the sidebar plugin | Immediately; **not shown at all when that plugin is absent** |
+| 禁止模型改写人设文件 | on | Refuse the model's file and shell tools any write to or removal of the persona store (reads still work); with it off the model can edit it directly | Immediately, on the next tool call |
 
 Preferences live in the persona file's `prefs` field — not in the browser — so they share the data's scope. The
 browser keeps only a mirror, used to decide at load whether to register the views.
@@ -223,7 +224,7 @@ Agent 人设 page (`保存在 …`), so it is never a mystery which file you are
 - Only the **first** match is used — no concatenation. Matching is a linear scan; dozens of rules are fine,
   hundreds want a redesign.
 - Install once per profile: two rows with the same id in one process make the composition fail.
-- **Test boundary**: the suite is unit tests plus source audits (196 host assertions, 116 client assertions, and a
+- **Test boundary**: the suite is unit tests plus source audits (200 host assertions, 165 client assertions, and a
   generated-artifact drift check; the numbers are counted by the suites themselves, so they cannot fall behind
   the files). It does not drive a browser — UI behaviour is checked by hand today.
 
@@ -244,7 +245,7 @@ docs/              architecture, development notes, design decisions
 npm install
 npm run build        # generate:remote → tsc → esbuild (writes lib/)
 npm run typecheck    # both tsconfigs, no errors
-npm test             # 196 + 116 assertions plus the generated-artifact drift check
+npm test             # 200 + 165 assertions plus the generated-artifact drift check
 dsh --profile web --dump-config | grep -c 'id: agent-persona'   # composition self-check, expects 1
 ```
 
