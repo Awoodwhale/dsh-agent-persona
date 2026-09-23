@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-persona",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Workspace personas for DeepSeek Harness (DSH): create many system-prompt personas and scope each one by workspace path or session id (exact / prefix / regex / contains), managed from a Web settings page with Markdown editing and AI tuning.",
   "type": "module",
   "main": "lib/index.js",
@@ -93,6 +93,7 @@
     "@deepseek-ai/dsh-client-ui-settings": ">=0.1.5-rc.1",
     "@deepseek-ai/dsh-client-ui-slots": ">=0.1.5-rc.1",
     "@deepseek-ai/dsh-typert-protocol": ">=0.1.5-rc.1",
+    "@deepseek-ai/schemastery": "^3.18.2",
     "react": "^18.3.1",
     "zod": "^4.0.0"
   },

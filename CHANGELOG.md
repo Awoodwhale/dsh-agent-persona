@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-09-23
+
+### Fixed
+
+- **The plugin could not load from a registry install.** `src/index.ts` imports `@deepseek-ai/schemastery` for its
+  config schema, but `package.json` never declared it — a phantom dependency that npm's flat layout hid (it was
+  hoisted from a transitive dependency) and pnpm's isolated layout does not: a package only resolves what its own
+  manifest declares. The installed copy therefore threw `ERR_MODULE_NOT_FOUND`, which failed the whole plugin tree
+  and stopped `dsh web` from starting. It was declared as a **peer dependency**, which is both what the ecosystem
+  does for official `@deepseek-ai/*` packages (`dsh-context` and `dshmarket` declare the same one) and what makes
+  the installer link it next to the installed copy next to the peers it already links.
+
+  This affects every published version so far: 0.1.0, 0.1.1 and 0.1.2 all fail to load from a registry install and
+  only worked while the profile resolved the plugin from a source checkout over `link:`.
+
 ## [0.1.2] - 2026-09-21
 
 ### Fixed
@@ -182,6 +197,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The conversation dialog hides plugin-injected user-side content — `AGENTS.md`, runtime snapshots, the skill
   catalog, goal rounds — reporting only 「已隐藏 N 条插件注入内容」.
 
+[0.1.3]: https://github.com/Awoodwhale/dsh-agent-persona/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Awoodwhale/dsh-agent-persona/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Awoodwhale/dsh-agent-persona/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Awoodwhale/dsh-agent-persona/releases/tag/v0.1.0
