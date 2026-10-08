@@ -4,6 +4,29 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-10-08
+
+### Fixed
+
+- **适配 DSH 0.2.0-rc.2。** 三处不兼容导致插件在新版本上完全无法使用：
+
+  1. **Typert strict codec 缺少 `create()` 工厂方法。** 0.2.0 的 typert-loader 和 gateway 要求每个 strict codec
+     提供 `create()` 并返回一个带 `parse()` 方法的对象，gateway 在处理 RPC 调用时执行 `codec.create().parse(value)`
+     进行边界校验。`generate-remote.mjs` 生成的 `remote.ts` 和 `typert.ts` 中的 codec 都只有
+     `{ mode, typeSymbol, schema }` 三个字段，缺少 `create`/`decode`/`encode`，导致宿主端 typert-loader 注册失败
+     （启动时报 warning "1 entry did not activate"），客户端 `ctx.remote.$mount()` 抛出异常使 `capturedApi` 始终
+     为 `undefined`，页面渲染回退为"插件还没加载好"错误提示，同时所有带参数的 RPC 调用（如 `sessionPrompt`、
+     `savePersona`）在 gateway 层因 `codec.create()` 返回 `undefined` 而报
+     "wire field \"input\" failed boundary validation"。
+
+  2. **图标组件名称变更。** `dsh-client-ui-primitives` 0.2.0-rc.2 将图标命名规则从尺寸后缀（如 `IconPlusOutline16`）
+     改为粗细后缀（如 `IconPlusOutlineRegular`），旧名称不再导出。从 primitives 解构出的 18 个图标全部为 `undefined`，
+     `verifyElements()` 检查失败，页面无法渲染。
+
+### Changed
+
+- `dsh.compatibility.dshReleases` 新增 `0.2.0-rc.2: compatible`。
+
 ## [0.1.3] - 2026-09-23
 
 ### Fixed

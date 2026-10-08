@@ -3,11 +3,17 @@ import { z } from "zod"
 
 const PKG = "dsh-agent-persona"
 const direct = { kind: "direct" }
-const jsonCodec = (typeSymbol) => ({
-  mode: "strict",
-  typeSymbol: `${PKG}#${typeSymbol}`,
-  schema: z.unknown(),
-})
+const jsonCodec = (typeSymbol) => {
+  const schema = z.unknown()
+  return {
+    mode: "strict",
+    typeSymbol: `${PKG}#${typeSymbol}`,
+    schema,
+    create: () => schema,
+    decode: (v) => v,
+    encode: (v) => v,
+  }
+}
 const result = (typeSymbol) => jsonCodec(typeSymbol)
 
 export const TYPERT = {

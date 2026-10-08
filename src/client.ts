@@ -57,25 +57,46 @@ window.__ModuleLoader__.load({
       Toast,
       Pill,
       Tooltip,
-      IconCheckOutline14,
-      IconChevronDownOutline14,
-      IconChevronRightOutline14,
-      IconAgentPresetOutline16,
-      IconBrowseOutline16,
-      IconChevronUpOutline14,
-      IconCloseOutline16,
-      IconEditOutline16,
-      IconEllipsisOutline16,
-      IconEnhanceOutline16,
-      IconFolderOpen16,
-      IconListPenOutline16,
-      IconPersonalizationOutline16,
-      IconRefreshOutline16,
-      IconUserOutline16,
-      IconWarningOutline16,
-      IconPlusOutline16,
-      IconTrashOutline16,
+      IconCheckOutlineRegular,
+      IconChevronDownOutlineRegular,
+      IconChevronRightOutlineRegular,
+      IconAgentPresetOutlineRegular,
+      IconBrowseOutlineRegular,
+      IconChevronUpOutlineRegular,
+      IconCloseOutlineRegular,
+      IconEditOutlineRegular,
+      IconEllipsisOutlineRegular,
+      IconEnhanceOutlineRegular,
+      IconFolderOpenRegular,
+      IconListPenOutlineRegular,
+      IconPersonalizationOutlineRegular,
+      IconRefreshOutlineRegular,
+      IconUserOutlineRegular,
+      IconWarningOutlineRegular,
+      IconPlusOutlineRegular,
+      IconTrashOutlineRegular,
     } = primitives
+
+    // 0.2.0-rc.2 primitives 将图标命名从尺寸后缀改为粗细后缀，用包装函数保持文件其余部分不变
+    const sized = (icon, size) => (props) => h(icon, { size, ...props })
+    const IconCheckOutline14 = sized(IconCheckOutlineRegular, 14)
+    const IconChevronDownOutline14 = sized(IconChevronDownOutlineRegular, 14)
+    const IconChevronRightOutline14 = sized(IconChevronRightOutlineRegular, 14)
+    const IconChevronUpOutline14 = sized(IconChevronUpOutlineRegular, 14)
+    const IconAgentPresetOutline16 = sized(IconAgentPresetOutlineRegular, 16)
+    const IconBrowseOutline16 = sized(IconBrowseOutlineRegular, 16)
+    const IconCloseOutline16 = sized(IconCloseOutlineRegular, 16)
+    const IconEditOutline16 = sized(IconEditOutlineRegular, 16)
+    const IconEllipsisOutline16 = sized(IconEllipsisOutlineRegular, 16)
+    const IconEnhanceOutline16 = sized(IconEnhanceOutlineRegular, 16)
+    const IconFolderOpen16 = sized(IconFolderOpenRegular, 16)
+    const IconListPenOutline16 = sized(IconListPenOutlineRegular, 16)
+    const IconPersonalizationOutline16 = sized(IconPersonalizationOutlineRegular, 16)
+    const IconRefreshOutline16 = sized(IconRefreshOutlineRegular, 16)
+    const IconUserOutline16 = sized(IconUserOutlineRegular, 16)
+    const IconWarningOutline16 = sized(IconWarningOutlineRegular, 16)
+    const IconPlusOutline16 = sized(IconPlusOutlineRegular, 16)
+    const IconTrashOutline16 = sized(IconTrashOutlineRegular, 16)
 
     const NS = 'agent-persona'
     /** ⌘ on Apple hardware, Ctrl elsewhere — shown next to the save button. */
@@ -879,6 +900,17 @@ const readPrefs = () => {
      * last sent, read from its own log.
      */
     /** The persona page as it appears inside the sidebar plugin's right pane. */
+    /**
+     * The session this view is showing, from whichever seat it was mounted in. The conversation slot passes
+     * `sessionId` (or a `session` object); the sidebar plugin passes a `scope` — its `TabComponentProps` has
+     * `ctx` / `store` / `scope` / `tab` and no session id of its own, so a view that only looked at the slot
+     * props could never work in the sidebar.
+     */
+    const sessionIdOf = (props) => {
+      const id = props?.sessionId ?? props?.session?.id ?? props?.scope?.sessionId
+      return typeof id === 'string' && id !== '' ? id : null
+    }
+
     const SidebarPersonaView = (props) => h(PersonaView, { ...props, host: 'sidebar' })
 
     class PersonaView extends React.Component {
@@ -891,9 +923,16 @@ const readPrefs = () => {
         void this.load()
       }
 
+      /**
+       * A sidebar tab stays mounted while the reader moves between sessions, so the view has to follow the
+       * session it is showing; otherwise it keeps rendering the one it was first opened for.
+       */
+      componentDidUpdate(previous) {
+        if (this.sessionId() !== sessionIdOf(previous)) void this.load()
+      }
+
       sessionId() {
-        const id = this.props?.sessionId ?? this.props?.session?.id
-        return typeof id === 'string' && id !== '' ? id : null
+        return sessionIdOf(this.props)
       }
 
       async load() {

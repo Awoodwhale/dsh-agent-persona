@@ -106,6 +106,12 @@ assert.ok(source.includes("ctx.inject(['betterSidebar'], (sidebarCtx) => {"), 'a
 assert.ok(source.includes('sidebarCtx.effect(() => {'), 'and that registration is bound to the arriving context')
 assert.ok(source.includes('syncSidebarModule = () => mountTab(sidebarService ?? resolveSidebar())'), 'the switch reuses the service it already resolved, falling back to a fresh resolve')
 assert.ok(source.includes("title: () => 'Agent 人设'"), 'with our own title')
+// The sidebar plugin's TabComponentProps has ctx / store / scope / tab and no session id, so a view that read
+// only the conversation slot's props showed 「这个视图没有拿到会话 id」 in the card while the tab worked. The
+// scope also changes without remounting, so the view has to follow it.
+assert.ok(source.includes('props?.scope?.sessionId'), 'the session id is read from the sidebar scope too')
+assert.ok(source.includes('componentDidUpdate(previous) {'), 'and the view follows a scope change')
+assert.ok(source.includes('if (this.sessionId() !== sessionIdOf(previous)) void this.load()'), 'by reloading for the new session')
 assert.equal(source.includes("ctx.inject(['sidebarRightTabs']"), false, 'the unusable path is gone')
 assert.ok(source.includes('id: NS,'), 'registered under our own id (registerTab takes no kind)')
 for (const gone of ['sidebar.footer.action', 'shell.overlay', 'PersonaFooterAction', 'PersonaOverlay']) {

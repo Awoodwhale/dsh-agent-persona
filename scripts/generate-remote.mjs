@@ -39,11 +39,17 @@ const header = `// 该文件由 scripts/generate-remote.mjs 生成，请勿手�
 
 const remote = `${header}const PKG = ${JSON.stringify(pkg)}
 
-const codec = (typeSymbol, parse) => ({
-  mode: "strict",
-  typeSymbol: \`\${PKG}#\${typeSymbol}\`,
-  schema: { parse },
-})
+const codec = (typeSymbol, parse) => {
+  const schema = { parse }
+  return {
+    mode: "strict",
+    typeSymbol: \`\${PKG}#\${typeSymbol}\`,
+    schema,
+    create: () => schema,
+    decode: (v) => v,
+    encode: (v) => v,
+  }
+}
 const passthrough = (value) => value
 const asInput = (value) => {
   if (value === undefined || value === null) return {}
@@ -105,11 +111,17 @@ const typert = `${header}import { z } from "zod"
 
 const PKG = ${JSON.stringify(pkg)}
 const direct = { kind: "direct" }
-const jsonCodec = (typeSymbol) => ({
-  mode: "strict",
-  typeSymbol: \`${'${PKG}'}#\${typeSymbol}\`,
-  schema: z.unknown(),
-})
+const jsonCodec = (typeSymbol) => {
+  const schema = z.unknown()
+  return {
+    mode: "strict",
+    typeSymbol: \`${'${PKG}'}#\${typeSymbol}\`,
+    schema,
+    create: () => schema,
+    decode: (v) => v,
+    encode: (v) => v,
+  }
+}
 const result = (typeSymbol) => jsonCodec(typeSymbol)
 
 export const TYPERT = {

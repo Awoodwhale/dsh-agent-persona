@@ -1,11 +1,17 @@
 // 该文件由 scripts/generate-remote.mjs 生成，请勿手改（改 src/endpoints.ts 后重新生成）。
 const PKG = "dsh-agent-persona"
 
-const codec = (typeSymbol, parse) => ({
-  mode: "strict",
-  typeSymbol: `${PKG}#${typeSymbol}`,
-  schema: { parse },
-})
+const codec = (typeSymbol, parse) => {
+  const schema = { parse }
+  return {
+    mode: "strict",
+    typeSymbol: `${PKG}#${typeSymbol}`,
+    schema,
+    create: () => schema,
+    decode: (v) => v,
+    encode: (v) => v,
+  }
+}
 const passthrough = (value) => value
 const asInput = (value) => {
   if (value === undefined || value === null) return {}
