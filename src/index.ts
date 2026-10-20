@@ -241,6 +241,12 @@ const STORE_WRITE_MARKERS = ['>', 'rm ', 'rm\t', 'mv ', 'cp ', 'chmod', 'chflags
 
 const STORE_REFUSAL = '人设存储由 agent-persona 插件管理：工具不能写入或删除它。需要修改人设时，请让用户在「设置 → Agent 人设」里操作。'
 
+/** Tools whose own arguments name the file they write, so a store path in them is the target. */
+const STORE_PATH_TOOLS = new Set(['write', 'edit', 'multiedit', 'apply_patch', 'create_file', 'delete_file', 'move_file'])
+
+/** Tools that run a command line, where the store only matters next to a write feature. */
+const STORE_SHELL_TOOLS = new Set(['bash', 'pwsh', 'shell', 'exec', 'terminal', 'run_command'])
+
 /** Every string nested anywhere in a tool call's arguments, to a bounded depth. */
 const stringsIn = (value, out = [], depth = 0) => {
   if (depth > 6 || value === null || value === undefined) return out
@@ -269,20 +275,29 @@ const stringsIn = (value, out = [], depth = 0) => {
  * whole command, so a read and a write of the store in one line is refused as a unit.
  */
 export const personaStoreGuardReason = (execution, storePath) => {
+  const name = String(execution?.name ?? '')
+  const shell = STORE_SHELL_TOOLS.has(name)
+  // A read-only call cannot rewrite the store, so a path that merely appears in its arguments is not a
+  // write. Refusing those (`read`, `grep`, `compress`, ...) turned the guard into a trap for honest work:
+  // any tool whose arguments quoted the store path was denied with a message about writing it.
+  if (!shell && !STORE_PATH_TOOLS.has(name)) return undefined
   const values = stringsIn(execution?.arguments)
   const target = resolve(storePath)
-  if (values.some((value) => {
+  const base = basename(storePath)
+  const dir = dirname(storePath)
+  const pointsAtStore = values.some((value) => {
     try {
       return resolve(value) === target
     } catch {
       return false
     }
-  })) return STORE_REFUSAL
-  const base = basename(storePath)
-  const dir = dirname(storePath)
-  if (values.some((value) => (value.includes(base) || value.includes(dir))
-    && STORE_WRITE_MARKERS.some((marker) => value.includes(marker)))) return STORE_REFUSAL
-  return undefined
+  })
+  const nearStore = values.some((value) => value.includes(base) || value.includes(dir))
+  const writes = values.some((value) => STORE_WRITE_MARKERS.some((marker) => value.includes(marker)))
+  // A tool that names its own target writes exactly what it points at; a shell command has to mention a
+  // write feature before the path inside it counts.
+  if (shell) return nearStore && writes ? STORE_REFUSAL : undefined
+  return pointsAtStore || (nearStore && writes) ? STORE_REFUSAL : undefined
 }
 
 export const sanitizePersona = (text, warn = () => {}) => {

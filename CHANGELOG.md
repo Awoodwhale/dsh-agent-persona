@@ -4,6 +4,29 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-10-20
+
+### Changed
+
+- **适配最新版 DSH `0.2.1-rc.2`。** 在 0.2.1-rc.2 上实测通过：设置页的人设列表、新建、保存
+  （`listPersonas` / `savePersona`，正文按 `MAX_TEXT_BYTES` 的 64 KiB 上限测了 6 KB 长文）与
+  system prompt 注入都正常；0.1.4 为 0.2.0-rc.2 补的 strict codec 契约（`create`/`decode`/`encode`）
+  与图标命名在 0.2.1-rc.2 上没有变化，所以那次适配继续有效。
+  `dsh.compatibility.dshReleases` 补上 `0.2.1-rc.2`（与 `0.1.5-rc.1`、`0.1.5-rc.2`、`0.2.0-rc.2`
+  并列 `compatible`）；宿主代码并不读取这个字段，它服务于插件市场/商店的版本提示，补上是为了让
+  "跑过哪些版本"与事实一致。
+- 宿主对**每一个**工具调用都会跑 `tools.guard`（0.2.1-rc.2 上实测 `compress` 也被拦），于是下面那条
+  守卫的误判从"偶尔"变成"常态"。
+
+### Fixed
+
+- **只读工具不再因为参数里出现人设存储路径而被拒绝。** `personaStoreGuardReason` 原来只看参数里有没有那个
+  路径，于是 `read`、`grep`、`compress` 这类根本不能改写存储的调用也会被拒绝，并回一条"工具不能写入或删除它"，
+  等于让会话连解释这个文件都做不到（同一个会话里 `compress` 就被挡过一次）。现在按工具名判断写意图：
+  `write`/`edit`/`multiedit`/`apply_patch` 等"参数即目标路径"的工具，路径指向存储才拒绝；`bash`/`pwsh`
+  等命令类工具仍要求同一个字符串里同时出现写特征（`rm`、`>`、`cp` 等）；其余只读工具一律放行。
+  存储保护本身没有放松：直接写存储、命令里删/覆盖存储，仍然照旧拒绝。
+
 ## [0.1.4] - 2026-10-08
 
 ### Fixed

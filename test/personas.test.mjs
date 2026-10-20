@@ -423,6 +423,11 @@ assert.equal(guard({ name: 'bash', arguments: { command: `cat ${storePath}` } })
 assert.equal(typeof guard({ name: 'bash', arguments: { command: `rm -f ${storePath}` } }), 'string', 'removing the store is refused')
 assert.equal(typeof guard({ name: 'bash', arguments: { command: `jq . ${storePath} > /tmp/c.json` } }), 'string', 'a redirect that mentions the store is refused')
 assert.equal(typeof guard({ name: 'edit', arguments: { file_path: storePath, old: 'a', new: 'b' } }), 'string', 'and so is an edit')
+// The guard must not read "mentions the store" as "writes the store": a read-only tool cannot rewrite it,
+// and denying one hides the file from the session that has to explain it.
+assert.equal(guard({ name: 'read', arguments: { file_path: storePath } }), undefined, 'reading the store through the read tool stays allowed')
+assert.equal(guard({ name: 'grep', arguments: { pattern: 'persona', path: storePath } }), undefined, 'and so does searching it')
+assert.equal(guard({ name: 'compress', arguments: { content: `notes about ${storePath}` } }), undefined, 'a call that merely quotes the path is not a write')
 
 // ── the guard is a preference, so switching it off must actually let the call through: the body reads the
 // live store, which is why one registration can honour a toggle without being re-registered

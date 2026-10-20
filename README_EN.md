@@ -61,9 +61,9 @@ workspace cannot touch this layer.
 
 ## Install
 
-**Tested against DSH `0.1.5-rc.1` (the author's development environment) and `0.1.5-rc.2`.** That is what
-`package.json`'s `dsh.compatibility` declares — it means "we ran on these", not a promise of compatibility work
-for older or newer releases; please verify on yours.
+**Tested against DSH `0.1.5-rc.1` (the author's development environment), `0.1.5-rc.2`, `0.2.0-rc.2` and
+the current `0.2.1-rc.2`.** That is what `package.json`'s `dsh.compatibility` declares — it means "we ran on
+these", not a promise of compatibility work for older or newer releases; please verify on yours.
 
 The sidebar card additionally needs **`dsh-better-sidebar`**: without it the `注册到 dsh-better-sidebar` switch is not
 shown at all (there is nothing to register into), and everything else works as usual.
