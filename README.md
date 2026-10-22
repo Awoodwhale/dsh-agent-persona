@@ -37,7 +37,7 @@
 | **会话视图** | 对话页顶部的 **人设** 标签 | 看这条会话命中了哪条人设、**实际发出去的 system prompt**（渲染/源码两视图），以及就地管理全部人设 |
 | **侧边栏卡片** | dsh-better-sidebar 的右侧栏 | 把上面那个「人设」页面挂进右侧栏（需要装了该插件） |
 
-四个偏好开关（`编辑后自动保存` / `在对话页显示「人设」标签` / `注册到 dsh-better-sidebar` / `禁止模型改写人设文件`）
+五个偏好开关（`编辑后自动保存` / `在对话页显示「人设」标签` / `注册到 dsh-better-sidebar` / `禁止模型改写人设文件` / `保存人设版本历史`）
 都在**设置 → Agent 人设**页里，并且这个页面**不受这些开关影响** —— 关掉「对话页显示」或「注册到 dsh-better-sidebar」后，
 回到这里就能重新打开。本插件不在**设置 → 通用设置**里添加任何条目；鼠标停在开关上会给出每个开关的完整说明。
 
@@ -83,7 +83,7 @@ dsh plugin --profile web remove dsh-agent-persona            # 卸载
 
 ## 用起来
 
-![人设列表](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/settings-list.png)
+![人设列表](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/settings-list.gif)
 
 点 **新建人设** → 在「适用范围」里加行，选工作区或会话 → 写正文 → 打开启用开关 → 保存。
 
@@ -99,7 +99,21 @@ dsh plugin --profile web remove dsh-agent-persona            # 卸载
 
 展开一张卡是这样：
 
-![展开编辑](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/settings-editor.png)
+![展开编辑](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/settings-editor.gif)
+
+### 版本历史（可选）
+
+打开设置页的 **保存人设版本历史**，之后每次保存都会把这次的正文改动记成一条 diff（写在
+`personas.history.json`）。编辑器底部的 **版本历史** 按钮打开对比窗口：
+
+![版本历史演示](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/versions.gif)
+
+- **只记正文**：名称、启用状态、适用范围不参与版本，改这些不会产生一条记录。
+- **每条都是 diff**：相等行只记行数，只有真正改动的行才存原文，所以一百条版本也远小于一百份正文。
+- **恢复**：选中任意一条点「恢复到此版本」写回正文；恢复动作本身也记一条，恢复错了还能再回滚。
+- **链式重放**：第一条版本作为基准快照，之后逐条重放；超过 200 条时把最旧的几条折进基准，
+  保留下来的版本仍可逐条打开。每条记录带内容摘要，历史文件被手改坏时重放会报错，不会给出别的正文。
+- 关掉开关只是停止记录，已有历史仍可查看与恢复。
 
 ### 看这条会话聊了什么
 
@@ -113,7 +127,7 @@ dsh plugin --profile web remove dsh-agent-persona            # 卸载
 
 ### 对话页的「人设」标签
 
-![会话视图](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/view-persona.png)
+![会话视图](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/view-persona.gif)
 
 选中一条会话后，对话页顶部有 **人设 / 提示词 / 管理** 三个面板：
 
@@ -124,7 +138,7 @@ dsh plugin --profile web remove dsh-agent-persona            # 卸载
   没有命中任何人设时，这里显示的就是 DSH 原生注入的 prompt —— 不做任何特殊处理。
 - **管理**：与设置页同一套卡片（新建、启用/停用、编辑、排序、复制、删除），就地管理。
 
-### 四个偏好
+### 五个偏好
 
 | 开关 | 默认 | 含义 | 生效时机 |
 |---|---|---|---|

@@ -95,7 +95,7 @@ overwritten — uninstalling only removes the plugin.
 
 ## Using it
 
-![persona list](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/settings-list.png)
+![persona list](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/settings-list.gif)
 
 **New persona** → add rows under reach, pick a workspace or a session → write the body → switch it on → save.
 
@@ -109,7 +109,22 @@ overwritten — uninstalling only removes the plugin.
 
 An expanded card — name, state, the default switch, injection mode, the reach rules, the body and the footer:
 
-![expanded card](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/settings-editor.png)
+![expanded card](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/settings-editor.gif)
+
+### Version history (opt-in)
+
+Turn on **Save persona version history** in Settings and every save records the text change as a diff in
+`personas.history.json`. The version-history button in the editor toolbar opens the comparison:
+
+![version history demo](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/versions.gif)
+
+- **Text only**: name, enabled flag and targets are not versioned.
+- **Diffs, not snapshots**: equal runs are stored as line counts; only changed lines keep their text.
+- **Restore**: pick any version and restore it; the restore itself is recorded, so it can be undone too.
+- **Chained replay**: the first text is the base snapshot, later versions replay on top of it; past 200
+  versions the oldest are folded into the base. A content hash per record makes a hand-edited history fail
+  loudly instead of restoring different text.
+- Turning the switch off stops recording; existing history stays readable and restorable.
 
 ### Reading what a session actually said
 
@@ -125,7 +140,7 @@ replies on the left.
 
 ### The 人设 tab on a conversation
 
-![session view](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/view-persona.png)
+![session view](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/view-persona.gif)
 
 **人设 / 提示词 / 管理**:
 
@@ -136,7 +151,7 @@ replies on the left.
   persona matched it shows DSH's own prompt verbatim.
 - **管理** — the same cards as the settings page, in place.
 
-### The four preferences
+### The five preferences
 
 | Switch | Default | Meaning | Takes effect |
 |---|---|---|---|
@@ -144,6 +159,7 @@ replies on the left.
 | 在对话页显示「人设」标签 | on | Register the conversation view or not | Immediately (registered/unregistered at runtime) |
 | 注册到 dsh-better-sidebar | on | Register the card with the sidebar plugin | Immediately; **not shown at all when that plugin is absent** |
 | 禁止模型改写人设文件 | on | Refuse the model's file and shell tools any write to or removal of the persona store (reads still work); with it off the model can edit it directly | Immediately, on the next tool call |
+| 保存人设版本历史 | off | Record every text change as a diff in `personas.history.json`, so any version can be compared and restored | Immediately, on the next save |
 
 Preferences live in the persona file's `prefs` field — not in the browser — so they share the data's scope. The
 browser keeps only a mirror, used to decide at load whether to register the views.
