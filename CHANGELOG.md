@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-10-22
+
+### Added
+
+- **人设版本历史（可选开关）。** 设置页新增「保存人设版本历史」，默认关闭。打开后每次保存正文都会
+  追加一条 diff 到 `personas.history.json`（与主存储同目录、0600）：相等行只记行数，变更行原文保留，
+  因此一条记录的成本约等于这次改动本身，而不是整份正文。
+- 编辑器底部新增「版本历史」按钮：左侧列出版本（时间、`+a / −r`、首个改动行），右侧显示该版相对上一版的
+  逐行 diff（红删绿增，未改动段折叠成行数）。「恢复到此版本」把选中版本写回当前人设，并且恢复本身也记成
+  一条新记录，所以恢复错了还能再回滚。
+- 新 RPC：`listVersions` / `versionDiff` / `restoreVersion`（远程产物由 `npm run generate:remote` 生成）。
+- 链式存储：第一条版本作为 base 快照，之后每版只在上一版上重放 diff；超过 `MAX_VERSIONS`（200）时把最旧的
+  几条折进 base，保证保留下来的版本仍可逐条重放。每条记录带内容 sha 摘要，历史被手改或损坏时重放会报错
+  而不是静默给出别的正文。
+
+### Notes
+
+- 历史只记正文，不记名称、启用状态与适用范围；关掉开关后不再写新记录，已有历史仍可查看与恢复。
+
 ## [0.1.5] - 2026-10-20
 
 ### Changed

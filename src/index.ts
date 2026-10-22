@@ -51,6 +51,7 @@ import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import Schema from '@deepseek-ai/schemastery'
 import { RPC_ENDPOINTS } from './endpoints.js'
 import { chmodSync, copyFileSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -186,6 +187,8 @@ export const normalizePrefs = (raw) => ({
   showTab: raw?.showTab !== false,
   showSidebar: raw?.showSidebar !== false,
   guard: raw?.guard !== false,
+  /** Opt-in version history: off by default, because it writes a second file on every save. */
+  history: raw?.history === true,
 })
 
 /**
@@ -315,6 +318,220 @@ export const sanitizePersona = (text, warn = () => {}) => {
     .replaceAll('\u0001', '')
   if (dropped.length > 0) warn(`persona text references unsupported prompt variables (${[...new Set(dropped)].join(', ')}); rendered as plain text`)
   return out
+}
+
+
+// ─────────────────────────────────────────────────────────── version history
+
+/**
+ * Opt-in per-persona version history.
+ *
+ * Every save stores the diff against the previous text (equal runs as counts, changed lines verbatim),
+ * so one record costs about as much as the edit rather than the whole document. The first version of a
+ * persona is kept as a base snapshot; every later version is reconstructed by replaying the diffs from
+ * that base. A hash per entry makes a corrupted or hand-edited history fail loudly instead of restoring
+ * the wrong text.
+ */
+export const HISTORY_VERSION = 1
+/** Versions kept per persona; the oldest are folded into the base snapshot when the cap is hit. */
+export const MAX_VERSIONS = 200
+
+export const historyPathFor = (storePath) => join(dirname(storePath), 'personas.history.json')
+
+const splitLines = (text) => String(text ?? '').split('\n')
+
+/**
+ * Line diff between two texts, as a sequence of equal/removed/added runs.
+ *
+ * Longest-common-subsequence over lines, with the shared prefix and suffix stripped first. That keeps the
+ * usual "edit one paragraph" case cheap; a pathological rewrite falls back to one remove+add pair, which
+ * is still a correct (if coarse) diff.
+ */
+export const diffLines = (beforeText, afterText) => {
+  const a = splitLines(beforeText)
+  const b = splitLines(afterText)
+  let head = 0
+  while (head < a.length && head < b.length && a[head] === b[head]) head += 1
+  let tail = 0
+  while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail += 1
+  const midA = a.slice(head, a.length - tail)
+  const midB = b.slice(head, b.length - tail)
+  const ops = []
+  const pushEqual = (n) => {
+    if (n <= 0) return
+    const last = ops[ops.length - 1]
+    if (last?.t === '=') last.n += n
+    else ops.push({ t: '=', n })
+  }
+  pushEqual(head)
+  const n = midA.length
+  const m = midB.length
+  if (n > 0 && m > 0 && n * m <= 4_000_000) {
+    // DP table over the changed middle only.
+    const width = m + 1
+    const table = new Uint32Array((n + 1) * width)
+    for (let i = n - 1; i >= 0; i -= 1) {
+      for (let j = m - 1; j >= 0; j -= 1) {
+        table[i * width + j] = midA[i] === midB[j]
+          ? table[(i + 1) * width + j + 1] + 1
+          : Math.max(table[(i + 1) * width + j], table[i * width + j + 1])
+      }
+    }
+    let i = 0
+    let j = 0
+    let equal = 0
+    const flushEqual = () => {
+      pushEqual(equal)
+      equal = 0
+    }
+    while (i < n && j < m) {
+      if (midA[i] === midB[j]) {
+        equal += 1
+        i += 1
+        j += 1
+        continue
+      }
+      flushEqual()
+      if (table[(i + 1) * width + j] >= table[i * width + j + 1]) {
+        const last = ops[ops.length - 1]
+        if (last?.t === '-') last.lines.push(midA[i])
+        else ops.push({ t: '-', lines: [midA[i]] })
+        i += 1
+      } else {
+        const last = ops[ops.length - 1]
+        if (last?.t === '+') last.lines.push(midB[j])
+        else ops.push({ t: '+', lines: [midB[j]] })
+        j += 1
+      }
+    }
+    flushEqual()
+    if (i < n) ops.push({ t: '-', lines: midA.slice(i) })
+    if (j < m) ops.push({ t: '+', lines: midB.slice(j) })
+  } else if (n > 0 || m > 0) {
+    if (n > 0) ops.push({ t: '-', lines: midA.slice() })
+    if (m > 0) ops.push({ t: '+', lines: midB.slice() })
+  }
+  pushEqual(tail)
+  return ops
+}
+
+/**
+ * Replay a diff onto a text. Equal runs count lines from the current text (their content is not stored, which
+ * is what keeps a record small); removals are checked against it so a mismatched history throws instead of
+ * silently producing a different document.
+ */
+export const applyDiff = (text, ops) => {
+  const lines = splitLines(text)
+  const out = []
+  let at = 0
+  for (const op of Array.isArray(ops) ? ops : []) {
+    if (op?.t === '=') {
+      const n = Math.max(0, Number(op.n) || 0)
+      for (let k = 0; k < n; k += 1) {
+        if (at >= lines.length) throw new Error('版本历史损坏：相等的行超出当前文本')
+        out.push(lines[at])
+        at += 1
+      }
+    } else if (op?.t === '-') {
+      const gone = Array.isArray(op.lines) ? op.lines : []
+      for (const line of gone) {
+        if (lines[at] !== line) throw new Error('版本历史损坏：删除的行与当前文本不一致')
+        at += 1
+      }
+    } else if (op?.t === '+') {
+      for (const line of Array.isArray(op.lines) ? op.lines : []) out.push(line)
+    }
+  }
+  while (at < lines.length) {
+    out.push(lines[at])
+    at += 1
+  }
+  return out.join('\n')
+}
+
+/** `+n / -m` summary used by the list row. */
+export const diffStats = (ops) => {
+  let added = 0
+  let removed = 0
+  for (const op of Array.isArray(ops) ? ops : []) {
+    if (op?.t === '+') added += op.lines.length
+    if (op?.t === '-') removed += op.lines.length
+  }
+  return { added, removed }
+}
+
+const readHistory = (storePath, warn) => {
+  const file = historyPathFor(storePath)
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8'))
+    if (parsed && typeof parsed === 'object' && parsed.personas && typeof parsed.personas === 'object') {
+      return { version: HISTORY_VERSION, personas: parsed.personas }
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') warn(`could not read the version history; starting a fresh one`, error)
+  }
+  return { version: HISTORY_VERSION, personas: {} }
+}
+
+const persistFile = (file, text, mode) => {
+  mkdirSync(dirname(file), { recursive: true })
+  const tmp = `${file}.tmp-${process.pid}`
+  writeFileSync(tmp, text, { mode })
+  renameSync(tmp, file)
+}
+
+const writeHistory = (storePath, history, warn) => {
+  const file = historyPathFor(storePath)
+  try {
+    mkdirSync(dirname(file), { recursive: true })
+    persistFile(file, `${JSON.stringify(history)}\n`, 0o600)
+  } catch (error) {
+    warn(`could not write the version history`, error)
+  }
+}
+
+/** Current text of one stored version (index 0 is the oldest kept version). */
+export const versionTextAt = (entryState, index) => {
+  const state = entryState
+  if (!state || typeof state.base !== 'string') throw new Error('这条人设还没有版本历史')
+  const versions = Array.isArray(state.versions) ? state.versions : []
+  if (!Number.isInteger(index) || index < 0 || index >= versions.length) throw new Error('版本不存在')
+  let text = state.base
+  for (let k = 0; k <= index; k += 1) text = applyDiff(text, versions[k].ops)
+  return text
+}
+
+/**
+ * Record one new version. `before` is the text the persona had, `after` the text it now has.
+ * Returns false when the history is off or nothing changed.
+ */
+export const recordVersion = (history, personaId, before, after, action, now = new Date().toISOString()) => {
+  const beforeText = String(before ?? '')
+  const afterText = String(after ?? '')
+  if (beforeText === afterText) return false
+  const ops = diffLines(beforeText, afterText)
+  const stats = diffStats(ops)
+  let state = history.personas[personaId]
+  if (state === undefined || typeof state.base !== 'string') {
+    state = { base: beforeText, baseAt: now, versions: [] }
+    history.personas[personaId] = state
+  }
+  state.versions.push({
+    at: now,
+    action,
+    ops,
+    added: stats.added,
+    removed: stats.removed,
+    hash: createHash('sha256').update(afterText, 'utf8').digest('hex').slice(0, 16),
+    size: Buffer.byteLength(afterText, 'utf8'),
+  })
+  // Fold the oldest versions into the base once the cap is hit, so every kept version stays replayable.
+  while (state.versions.length > MAX_VERSIONS) {
+    const [oldest] = state.versions.splice(0, 1)
+    state.base = applyDiff(state.base, oldest.ops)
+    state.baseAt = oldest.at
+  }
+  return true
 }
 
 // ─────────────────────────────────────────────────────────── matching
@@ -1050,6 +1267,33 @@ class WorkspacePersonaService extends TypertRemoteService {
     }
   }
 
+  /** Version list for one persona (opt-in history). */
+  async listVersions(input) {
+    try {
+      return this.runtime.listVersions(input)
+    } catch (error) {
+      return { error: `listVersions failed: ${String((error && error.stack) || error)}` }
+    }
+  }
+
+  /** One stored version with its diff. */
+  async versionDiff(input) {
+    try {
+      return this.runtime.versionDiff(input)
+    } catch (error) {
+      return { error: `versionDiff failed: ${String((error && error.stack) || error)}` }
+    }
+  }
+
+  /** Restore a stored version as the current persona text. */
+  async restoreVersion(input) {
+    try {
+      return this.runtime.restoreVersion(input)
+    } catch (error) {
+      return { error: `restoreVersion failed: ${String((error && error.stack) || error)}` }
+    }
+  }
+
   /** Remove one persona. */
   async deletePersona(input) {
     try {
@@ -1382,8 +1626,85 @@ export function apply(ctx, config = {}) {
     }
   }
 
+  /** Read + write the history file around one mutation; a disabled switch costs nothing. */
+  const historyEnabled = () => currentStore().prefs?.history === true
+  const recordIfEnabled = (personaId, before, after, action) => {
+    if (!historyEnabled() || personaId === undefined) return
+    const history = readHistory(storePath, warn)
+    if (!recordVersion(history, personaId, before, after, action)) return
+    writeHistory(storePath, history, warn)
+  }
+
   const runtime = {
     view,
+    /** Version list for one persona (newest first for display, indices stay oldest-first). */
+    listVersions(input) {
+      const id = typeof input?.id === 'string' ? input.id : ''
+      const persona = currentStore().personas.find((item) => item.id === id)
+      if (persona === undefined) throw new Error('人设不存在（可能已被删除）')
+      const history = readHistory(storePath, warn)
+      const state = history.personas[id]
+      const versions = Array.isArray(state?.versions) ? state.versions : []
+      return {
+        id,
+        name: persona.name,
+        enabled: historyEnabled(),
+        baseAt: state?.baseAt ?? '',
+        max: MAX_VERSIONS,
+        current: persona.text,
+        versions: versions.map((version, index) => ({
+          index,
+          at: version.at,
+          action: version.action,
+          added: version.added,
+          removed: version.removed,
+          size: version.size,
+          preview: (version.ops ?? []).find((op) => op.t === '+')?.lines?.[0] ?? '',
+        })),
+      }
+    },
+    /** One version with the text it produced and the diff against the version before it. */
+    versionDiff(input) {
+      const id = typeof input?.id === 'string' ? input.id : ''
+      const persona = currentStore().personas.find((item) => item.id === id)
+      if (persona === undefined) throw new Error('人设不存在（可能已被删除）')
+      const history = readHistory(storePath, warn)
+      const state = history.personas[id]
+      const index = Number(input?.index)
+      const version = state?.versions?.[index]
+      if (version === undefined) throw new Error('版本不存在')
+      const after = versionTextAt(state, index)
+      const before = index === 0 ? state.base : versionTextAt(state, index - 1)
+      return {
+        id,
+        index,
+        at: version.at,
+        action: version.action,
+        added: version.added,
+        removed: version.removed,
+        ops: version.ops,
+        before,
+        after,
+        current: persona.text,
+      }
+    },
+    /** Put a stored version back as the persona text; the restore itself is recorded as a new version. */
+    restoreVersion(input) {
+      const current = reload()
+      const id = typeof input?.id === 'string' ? input.id : ''
+      const persona = current.personas.find((item) => item.id === id)
+      if (persona === undefined) throw new Error('人设不存在（可能已被删除）')
+      const history = readHistory(storePath, warn)
+      const text = versionTextAt(history.personas[id], Number(input?.index))
+      const before = persona.text
+      persona.text = text
+      commit(current)
+      recordIfEnabled(id, before, text, 'restore')
+      info(`restored persona "${persona.name}" to version ${String(input?.index)}`)
+      const result = view()
+      result.notice = `已恢复到第 ${Number(input?.index) + 1} 个版本`
+      return result
+    },
     /** Merge preferences into the store; every field is optional so one switch can be saved. */
     savePrefs(input) {
       const current = reload()
@@ -1395,6 +1716,8 @@ export function apply(ctx, config = {}) {
     save(input) {
       const next = normalizeInput(input)
       const current = reload()
+      const beforeText = next.id === undefined ? '' : (current.personas.find((item) => item.id === next.id)?.text ?? '')
+      const created = next.id === undefined
       let persona
       if (next.id === undefined) {
         persona = { id: newId(), name: next.name, enabled: next.enabled, fallback: next.fallback, text: next.text, mode: next.mode, targets: next.targets }
@@ -1425,6 +1748,7 @@ export function apply(ctx, config = {}) {
         }
       }
       commit(current)
+      if (next.text !== beforeText) recordIfEnabled(persona.id, beforeText, next.text, created ? 'create' : 'update')
       const result = view()
       if (released.length > 0) {
         result.notice = `「${persona.name}」现在是默认人设；「${released.join('」「')}」已取消默认`

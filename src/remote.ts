@@ -51,5 +51,8 @@ export const RPC_REMOTE = {
     method("tunePersona", withInput()),
     method("listModels", []),
     method("savePrefs", withInput()),
+    method("listVersions", withInput()),
+    method("versionDiff", withInput()),
+    method("restoreVersion", withInput()),
   ],
 }

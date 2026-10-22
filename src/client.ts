@@ -798,6 +798,22 @@ const readPrefs = () => {
 @media (prefers-reduced-motion: reduce) {
   [data-plugin="dsh-agent-persona"] * { transition: none !important; }
 }
+
+.wsp-versions { display: flex; flex-direction: column; gap: 12px; max-height: 58vh; }
+.wsp-versions-list { display: flex; flex-direction: row; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.wsp-version-row { display: flex; flex-direction: column; gap: 2px; text-align: left; min-width: 150px; max-width: 150px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--wsp-line); background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.wsp-version-row:hover { border-color: var(--wsp-line-strong); }
+.wsp-version-row.is-active { border-color: var(--dsw-alias-brand-primary, #4f8cff); background: var(--dsw-alias-bg-l2, rgba(79, 140, 255, 0.08)); }
+.wsp-version-title { font-size: 13px; font-weight: 600; }
+.wsp-version-meta { font-size: 11px; opacity: 0.72; font-variant-numeric: tabular-nums; }
+.wsp-version-preview { font-size: 11px; opacity: 0.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wsp-versions-diff { display: flex; flex-direction: column; gap: 8px; min-width: 0; overflow: hidden; }
+.wsp-diff-head { font-size: 12px; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.wsp-diff-body { overflow: auto; border: 1px solid var(--wsp-line); border-radius: 8px; padding: 8px 0; background: var(--wsp-line-soft); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.55; }
+.wsp-diff-line { padding: 0 10px; white-space: pre-wrap; word-break: break-word; }
+.wsp-diff-add { background: rgba(46, 160, 67, 0.16); }
+.wsp-diff-del { background: rgba(248, 81, 73, 0.14); }
+.wsp-diff-skip { padding: 2px 10px; opacity: 0.5; font-size: 11px; }
 `
 
     let styleElement
@@ -1297,6 +1313,11 @@ const since = (timestamp) => {
           dropIndex: undefined,
           history: undefined,
           historyBusy: undefined,
+          versions: undefined,
+          versionsBusy: '',
+          versionsError: '',
+          versionDiff: undefined,
+          versionIndex: undefined,
           models: [],
           model: '',
           tuneOpen: false,
@@ -1495,6 +1516,58 @@ const since = (timestamp) => {
           }
         }
         return items
+      }
+
+      /** Version history: list, diff, restore. Opt-in through the settings switch. */
+      async openVersions(id) {
+        const api = this.api()
+        if (api === undefined || typeof api.listVersions !== 'function') {
+          this.onChange({ versionsError: '这个版本还没有版本历史接口：请更新插件后重启 dsh web' })
+          return
+        }
+        this.onChange({ versionsBusy: 'list', versionsError: '', versions: { id }, versionDiff: undefined, versionIndex: undefined })
+        try {
+          const data = this.unwrap(await api.listVersions({ id }))
+          this.onChange({ versionsBusy: '', versions: data })
+          await this.readVersion((data?.versions?.length ?? 0) - 1)
+        } catch (error) {
+          this.onChange({ versionsBusy: '', versions: undefined, versionsError: String((error && error.message) || error) })
+        }
+      }
+
+      /** Load one version's diff; the modal swaps its right pane. */
+      async readVersion(index) {
+        const api = this.api()
+        const versions = this.state.versions
+        if (api === undefined || versions === undefined || index < 0) return
+        this.onChange({ versionsBusy: 'diff', versionIndex: index, versionsError: '' })
+        try {
+          const diff = this.unwrap(await api.versionDiff({ id: versions.id, index }))
+          this.onChange({ versionsBusy: '', versionDiff: diff })
+        } catch (error) {
+          this.onChange({ versionsBusy: '', versionDiff: undefined, versionsError: String((error && error.message) || error) })
+        }
+      }
+
+      /** Put one version back as the persona text (itself recorded as a new version). */
+      async restoreVersion(index) {
+        const api = this.api()
+        const versions = this.state.versions
+        if (api === undefined || versions === undefined) return
+        this.onChange({ versionsBusy: 'restore', versionsError: '' })
+        try {
+          const view = this.unwrap(await api.restoreVersion({ id: versions.id, index }))
+          const found = (view?.personas ?? []).find((item) => item.id === versions.id)
+          this.onChange({
+            view,
+            versionsBusy: '',
+            status: view?.notice ?? '已恢复',
+            draft: this.state.openId === versions.id && found !== undefined ? this.draftFrom(found) : this.state.draft,
+          })
+          await this.openVersions(versions.id)
+        } catch (error) {
+          this.onChange({ versionsBusy: '', versionsError: String((error && error.message) || error) })
+        }
       }
 
       /** Read a session's recent messages so the user can recognise it. */
@@ -2531,6 +2604,16 @@ const since = (timestamp) => {
             h('div', { className: 'wsp-foot', key: 'foot' }, [
               h('span', { className: 'wsp-caption', key: 'c' }, `${draft.text.length} 字 · ⌘/Ctrl+S 保存`),
               h('div', { className: 'wsp-actions', key: 'a' }, [
+                this.state.prefs?.history === true
+                  ? h(Button, {
+                    key: 'ver',
+                    variant: 'ghost',
+                    size: 'sm',
+                    disabled: busy,
+                    title: '查看这条人设的版本历史',
+                    onClick: () => void this.openVersions(draft.id),
+                  }, '版本历史')
+                  : null,
                 h(Button, { key: 'dup', variant: 'ghost', size: 'sm', disabled: busy, onClick: () => void this.duplicate(draft.id) }, '复制'),
                 state.confirmDelete === draft.id
                   ? h(Button, { key: 'del2', variant: 'ghost', size: 'sm', className: 'wsp-icon-btn-danger', disabled: busy, onClick: () => void this.remove(draft.id) }, '确认删除')
@@ -2801,6 +2884,13 @@ const since = (timestamp) => {
             hint: '打开后，模型的文件与命令工具不能写入或删除人设存储（personas.json 及其备份）；读取不受影响。关掉后模型就能直接改它。这是行为层面的限制，不是安全边界：本机上的其它程序仍可修改。',
             onChange: (next) => this.setPref({ guard: next }),
           }),
+          h(Switch, {
+            key: 'history',
+            checked: prefs.history === true,
+            label: '保存人设版本历史',
+            hint: '打开后每次保存都会把这次的正文改动记成一条 diff（另存 personas.history.json），可以在编辑器的「版本历史」里对比，并把任意一条恢复成当前正文。只记正文，不记名称与范围。',
+            onChange: (next) => this.setPref({ history: next }),
+          }),
         ])
 
         const pendingDelete = state.confirmDelete === undefined || state.confirmDelete === null
@@ -2817,6 +2907,73 @@ const since = (timestamp) => {
             h(Button, { key: 'ok', variant: 'primary', size: 'sm', disabled: busy, onClick: () => void this.remove(pendingDelete.id) }, '删除'),
           ]),
         }, h('div', { className: 'wsp-card-note' }, `名称：${pendingDelete.name}　·　${pendingDelete.chars} 字　·　${pendingDelete.targets?.length ?? 0} 条适用范围`))
+
+        // ── version history modal: list on the left, the selected diff on the right
+        const versionsState = state.versions
+        const diffState = state.versionDiff
+        const versionRows = versionsState === undefined
+          ? []
+          : [...(versionsState.versions ?? [])].reverse()
+        const diffLines = []
+        if (diffState !== undefined) {
+          for (const op of diffState.ops ?? []) {
+            if (op.t === '=') {
+              diffLines.push(h('div', { className: 'wsp-diff-skip', key: `s${diffLines.length}` }, `⋯ ${op.n} 行未改动`))
+              continue
+            }
+            for (const line of op.lines ?? []) {
+              diffLines.push(h('div', {
+                className: `wsp-diff-line ${op.t === '+' ? 'wsp-diff-add' : 'wsp-diff-del'}`,
+                key: `d${diffLines.length}`,
+              }, `${op.t === '+' ? '+' : '−'} ${line === '' ? ' ' : line}`))
+            }
+          }
+        }
+        const versionsModal = versionsState === undefined && state.versionsError === '' ? null : h(Modal, {
+          key: 'versions',
+          open: true,
+          onClose: () => this.onChange({ versions: undefined, versionDiff: undefined, versionsError: '', versionIndex: undefined }),
+          title: `版本历史${versionsState?.name === undefined ? '' : ` · ${versionsState.name}`}`,
+          description: '每次保存记一条正文 diff。恢复会把选中的版本写回当前人设，并作为一条新记录，所以恢复本身也能再回滚。',
+          footer: h('div', { className: 'wsp-form-actions' }, [
+            h(Button, {
+              key: 'close',
+              variant: 'outline',
+              size: 'sm',
+              onClick: () => this.onChange({ versions: undefined, versionDiff: undefined, versionsError: '', versionIndex: undefined }),
+            }, '关闭'),
+            h(Button, {
+              key: 'restore',
+              variant: 'primary',
+              size: 'sm',
+              disabled: state.versionsBusy !== '' || state.versionIndex === undefined || diffState === undefined,
+              onClick: () => void this.restoreVersion(state.versionIndex),
+            }, state.versionsBusy === 'restore' ? '恢复中…' : '恢复到此版本'),
+          ]),
+        }, h('div', { className: 'wsp-versions' }, [
+          h('div', { className: 'wsp-versions-list', key: 'l' }, versionRows.length === 0
+            ? h('div', { className: 'wsp-card-note' }, state.versionsError !== ''
+              ? state.versionsError
+              : '还没有历史版本：先在开关里打开「保存人设版本历史」，然后保存一次正文。')
+            : versionRows.map((version) => h('button', {
+              type: 'button',
+              key: version.index,
+              className: `wsp-version-row${state.versionIndex === version.index ? ' is-active' : ''}`,
+              onClick: () => void this.readVersion(version.index),
+            }, [
+              h('span', { className: 'wsp-version-title', key: 't' }, `第 ${version.index + 1} 版`),
+              h('span', { className: 'wsp-version-meta', key: 'm' },
+                `${String(version.at).replace('T', ' ').slice(5, 19)}　+${version.added} / −${version.removed}`),
+              h('span', { className: 'wsp-version-preview', key: 'p' }, version.preview || '（无可显示的改动行）'),
+            ]))),
+          h('div', { className: 'wsp-versions-diff', key: 'd' }, diffState === undefined
+            ? h('div', { className: 'wsp-card-note' }, '左侧选一个版本，这里显示它相对上一版的改动。')
+            : [
+              h('div', { className: 'wsp-diff-head', key: 'h' },
+                `${String(diffState.at).replace('T', ' ').slice(0, 19)}　·　${diffState.action === 'restore' ? '恢复' : diffState.action === 'create' ? '新建' : '修改'}　·　+${diffState.added} / −${diffState.removed}`),
+              h('div', { className: 'wsp-diff-body', key: 'b' }, diffLines),
+            ]),
+        ]))
 
         // A store that could not be read is worth interrupting for: the page shows an empty list, which
         // otherwise looks exactly like "I have not created anything yet", and the next save would replace
@@ -2943,7 +3100,7 @@ const since = (timestamp) => {
             ]),
         ]))
 
-        return h('div', rootProps, [header, healthNote, prefsRow, transferRow, searchRow, hiddenNote, conflictNotice, h('div', { className: 'wsp-cards', key: 'cards' }, cards), status, historyModal, confirmModal, importModal])
+        return h('div', rootProps, [header, healthNote, prefsRow, transferRow, searchRow, hiddenNote, conflictNotice, h('div', { className: 'wsp-cards', key: 'cards' }, cards), status, historyModal, confirmModal, versionsModal, importModal])
       }
     }
 

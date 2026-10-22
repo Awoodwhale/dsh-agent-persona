@@ -553,7 +553,7 @@ assert.ok(exposedNames.includes('sessionPrompt'), 'the persona view endpoint is 
 
 // ── every write goes through one commit path, and that path preserves an unreadable store first:
 // if a write could reach persist() directly, the backup could be skipped and the file silently replaced
-assert.equal((hostSource.match(/commit\(current\)/g) ?? []).length, 6, 'all six write sites commit through the shared path')
+assert.equal((hostSource.match(/commit\(current\)/g) ?? []).length, 7, 'all seven write sites (including version restore) commit through the shared path')
 assert.equal(/persist\(current, storePath\)/.test(hostSource), false, 'and none of them writes directly')
 const commitAt = hostSource.indexOf('const commit = (next) => {')
 const commitBody = hostSource.slice(commitAt, hostSource.indexOf('\n  }\n', commitAt))
@@ -625,15 +625,51 @@ assert.throws(() => mod.Config({ storePath: 42 }), 'while a wrong type is reject
 
 // ── interface preferences live in the store with the personas, so one file carries everything the
 // plugin remembers and two deployments pointed at different files are fully independent
-assert.deepEqual(mod.normalizePrefs(undefined), { autosave: false, showTab: true, showSidebar: true, guard: true },
+assert.deepEqual(mod.normalizePrefs(undefined), { autosave: false, showTab: true, showSidebar: true, guard: true, history: false },
   'the display switches default to on: a fresh install shows the page everywhere')
-assert.deepEqual(mod.normalizePrefs({}), { autosave: false, showTab: true, showSidebar: true, guard: true }, 'and an empty object means the same')
-assert.deepEqual(mod.normalizePrefs({ autosave: true, showTab: false, showSidebar: false, guard: false }),
-  { autosave: true, showTab: false, showSidebar: false, guard: false }, 'while explicit values are kept')
-assert.deepEqual(mod.normalizePrefs({ showTab: 'yes', autosave: 1, showSidebar: 0, guard: 0 }),
-  { autosave: false, showTab: true, showSidebar: true, guard: true },
+assert.deepEqual(mod.normalizePrefs({}), { autosave: false, showTab: true, showSidebar: true, guard: true, history: false }, 'and an empty object means the same')
+assert.deepEqual(mod.normalizePrefs({ autosave: true, showTab: false, showSidebar: false, guard: false, history: true }),
+  { autosave: true, showTab: false, showSidebar: false, guard: false, history: true }, 'while explicit values are kept')
+assert.deepEqual(mod.normalizePrefs({ showTab: 'yes', autosave: 1, showSidebar: 0, guard: 0, history: 'yes' }),
+  { autosave: false, showTab: true, showSidebar: true, guard: true, history: false },
   'autosave needs exactly true; a display switch turns off only on exactly false, so junk means on')
 assert.equal(mod.normalizePrefs(undefined).guard, true, 'the store guard is on unless it is switched off explicitly')
+
+
+// ── version history: opt-in, diff-based, replayable. The three properties that matter are covered here:
+// a diff must round-trip, a chain of diffs must rebuild every version, and folding old versions into the
+// base must keep the survivors replayable.
+assert.equal(mod.normalizePrefs(undefined).history, false, 'version history is off unless the user turns it on')
+
+const vhOriginal = 'line one\nline two\nline three\nline four'
+const vhEdited = 'line one\nline two changed\nline three\nline four\nline five'
+const ops = mod.diffLines(vhOriginal, vhEdited)
+assert.equal(mod.applyDiff(vhOriginal, ops), vhEdited, 'a diff replayed on the old text produces the new text')
+assert.deepEqual(mod.diffStats(ops), { added: 2, removed: 1 }, 'the summary counts added and removed lines')
+assert.equal(mod.applyDiff('', mod.diffLines('', 'a\nb')), 'a\nb', 'creating a text is one add run')
+assert.equal(mod.applyDiff(vhOriginal, mod.diffLines(vhOriginal, vhOriginal)), vhOriginal, 'no change is an identity diff')
+
+const vhHistory = { version: 1, personas: {} }
+assert.equal(mod.recordVersion(vhHistory, 'p1', 'a\nb', 'a\nb', 'update'), false, 'an unchanged save records nothing')
+assert.equal(mod.recordVersion(vhHistory, 'p1', 'a\nb', 'a\nb\nc', 'update', '2026-01-01T00:00:00Z'), true, 'a change records one version')
+mod.recordVersion(vhHistory, 'p1', 'a\nb\nc', 'a\nB\nc', 'update', '2026-01-02T00:00:00Z')
+mod.recordVersion(vhHistory, 'p1', 'a\nB\nc', 'a\nB\nc\nd', 'update', '2026-01-03T00:00:00Z')
+assert.equal(vhHistory.personas.p1.base, 'a\nb', 'the first text stays as the replay base')
+assert.equal(vhHistory.personas.p1.versions.length, 3, 'every change is kept')
+assert.equal(mod.versionTextAt(vhHistory.personas.p1, 0), 'a\nb\nc', 'version 1 replays from the base')
+assert.equal(mod.versionTextAt(vhHistory.personas.p1, 1), 'a\nB\nc', 'version 2 replays through both diffs')
+assert.equal(mod.versionTextAt(vhHistory.personas.p1, 2), 'a\nB\nc\nd', 'version 3 is the newest text')
+assert.throws(() => mod.versionTextAt(vhHistory.personas.p1, 9), /版本不存在/, 'an index past the end is refused')
+assert.throws(() => mod.applyDiff('different', vhHistory.personas.p1.versions[0].ops), /版本历史损坏/, 'a mismatched replay fails loudly instead of inventing text')
+
+// Folding: cap the chain, and the surviving versions must still replay to the same texts.
+const capped = { version: 1, personas: {} }
+mod.recordVersion(capped, 'p2', 'v0', 'v1', 'update', '2026-02-01T00:00:00Z')
+const cappedState = capped.personas.p2
+cappedState.versions = Array.from({ length: mod.MAX_VERSIONS }, (_, i) => ({ ...cappedState.versions[0], at: `2026-02-01T00:00:${String(i).padStart(2, '0')}Z` }))
+mod.recordVersion(capped, 'p2', 'v1', 'v2', 'update', '2026-02-02T00:00:00Z')
+assert.equal(cappedState.versions.length, mod.MAX_VERSIONS, 'the cap holds')
+assert.equal(cappedState.base, 'v1', 'folding the oldest diff into the base keeps the chain pointing at real text')
 
 console.log(JSON.stringify({
   ok: true,

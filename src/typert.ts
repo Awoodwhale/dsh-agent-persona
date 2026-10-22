@@ -42,6 +42,9 @@ export const TYPERT = {
           { name: "tunePersona", kind: "method", signature: "(input: unknown): Promise<unknown>" },
           { name: "listModels", kind: "method", signature: "(): Promise<unknown>" },
           { name: "savePrefs", kind: "method", signature: "(input: unknown): Promise<unknown>" },
+          { name: "listVersions", kind: "method", signature: "(input: unknown): Promise<unknown>" },
+          { name: "versionDiff", kind: "method", signature: "(input: unknown): Promise<unknown>" },
+          { name: "restoreVersion", kind: "method", signature: "(input: unknown): Promise<unknown>" },
         ],
         types: [],
       },
@@ -210,6 +213,54 @@ export const TYPERT = {
           service: "agentPersona",
           namespace: "agentPersona",
           method: "savePrefs",
+          invocation: direct,
+          parameters: [
+        {
+          name: "input",
+          wire: "input",
+          source: "json",
+          codec: jsonCodec("Json"),
+        },
+      ],
+          result: result("Json"),
+        },
+        {
+          id: `dsh-agent-persona#agentPersona/listVersions`,
+          service: "agentPersona",
+          namespace: "agentPersona",
+          method: "listVersions",
+          invocation: direct,
+          parameters: [
+        {
+          name: "input",
+          wire: "input",
+          source: "json",
+          codec: jsonCodec("Json"),
+        },
+      ],
+          result: result("Json"),
+        },
+        {
+          id: `dsh-agent-persona#agentPersona/versionDiff`,
+          service: "agentPersona",
+          namespace: "agentPersona",
+          method: "versionDiff",
+          invocation: direct,
+          parameters: [
+        {
+          name: "input",
+          wire: "input",
+          source: "json",
+          codec: jsonCodec("Json"),
+        },
+      ],
+          result: result("Json"),
+        },
+        {
+          id: `dsh-agent-persona#agentPersona/restoreVersion`,
+          service: "agentPersona",
+          namespace: "agentPersona",
+          method: "restoreVersion",
           invocation: direct,
           parameters: [
         {
