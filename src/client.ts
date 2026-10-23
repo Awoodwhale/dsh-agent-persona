@@ -833,6 +833,7 @@ const readPrefs = () => {
 .wsp-version-title { font-size: 13px; font-weight: 600; }
 .wsp-version-meta { font-size: 11px; opacity: 0.72; font-variant-numeric: tabular-nums; }
 .wsp-version-preview { font-size: 11px; opacity: 0.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wsp-version-hash { font-family: var(--wsp-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11px; opacity: 0.55; }
 .wsp-versions-diff { display: flex; flex-direction: column; gap: 8px; min-width: 0; overflow: hidden; }
 .wsp-diff-head { font-size: 12px; opacity: 0.75; font-variant-numeric: tabular-nums; }
 .wsp-diff-body { overflow: auto; border: 1px solid var(--wsp-line); border-radius: 8px; padding: 8px 0; background: var(--wsp-line-soft); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.55; }
@@ -1359,6 +1360,7 @@ const since = (timestamp) => {
           versionsError: '',
           versionDiff: undefined,
           versionIndex: undefined,
+          versionConfirm: false,
           models: [],
           model: '',
           tuneOpen: false,
@@ -1595,7 +1597,7 @@ const since = (timestamp) => {
           this.onChange({ versionsError: '这个版本还没有版本历史接口：请更新插件后重启 dsh web' })
           return
         }
-        this.onChange({ versionsBusy: 'list', versionsError: '', versions: { id }, versionDiff: undefined, versionIndex: undefined })
+        this.onChange({ versionsBusy: 'list', versionsError: '', versions: { id }, versionDiff: undefined, versionIndex: undefined, versionConfirm: false })
         try {
           const data = this.unwrap(await api.listVersions({ id }))
           this.onChange({ versionsBusy: '', versions: data })
@@ -1611,7 +1613,7 @@ const since = (timestamp) => {
         const versions = this.state.versions
         if (api === undefined || versions === undefined || index < 0) return
         const seq = (this.versionSeq += 1)
-        this.onChange({ versionsBusy: 'diff', versionIndex: index, versionsError: '' })
+        this.onChange({ versionsBusy: 'diff', versionIndex: index, versionsError: '', versionConfirm: false })
         try {
           const diff = this.unwrap(await api.versionDiff({ id: versions.id, index }))
           // Rows are clickable while a diff is loading: without this token two clicks in a row can show the
@@ -1642,6 +1644,37 @@ const since = (timestamp) => {
             view,
             versionsBusy: '',
             status: view?.notice ?? '已恢复',
+            draft: this.state.openId === versions.id && found !== undefined ? this.draftFrom(found) : this.state.draft,
+          })
+          await this.openVersions(versions.id)
+        } catch (error) {
+          this.onChange({ versionsBusy: '', versionsError: String((error && error.message) || error) })
+        }
+      }
+
+      /**
+       * Delete one stored version. Two clicks: the first arms the footer button, the second deletes — a
+       * history entry is the only copy of a text that may not exist anywhere else.
+       */
+      async deleteVersion(index) {
+        const api = this.api()
+        const versions = this.state.versions
+        if (api === undefined || versions === undefined) return
+        if (this.state.versionConfirm !== true) {
+          this.onChange({ versionConfirm: true })
+          return
+        }
+        clearTimeout(this.autosaveTimer)
+        this.autosaveTimer = undefined
+        this.saveSeq += 1
+        this.onChange({ versionsBusy: 'delete', versionsError: '', versionConfirm: false })
+        try {
+          const view = this.unwrap(await api.deleteVersion({ id: versions.id, index }))
+          const found = (view?.personas ?? []).find((item) => item.id === versions.id)
+          this.onChange({
+            view,
+            versionsBusy: '',
+            status: view?.notice ?? '已删除该版本',
             draft: this.state.openId === versions.id && found !== undefined ? this.draftFrom(found) : this.state.draft,
           })
           await this.openVersions(versions.id)
@@ -3035,6 +3068,13 @@ const since = (timestamp) => {
               onClick: () => this.onChange({ versions: undefined, versionDiff: undefined, versionsError: '', versionIndex: undefined }),
             }, '关闭'),
             h(Button, {
+              key: 'delete',
+              variant: 'outline',
+              size: 'sm',
+              disabled: state.versionsBusy !== '' || state.versionIndex === undefined || diffState === undefined,
+              onClick: () => void this.deleteVersion(state.versionIndex),
+            }, state.versionsBusy === 'delete' ? '删除中…' : state.versionConfirm === true ? '再点一次：删除' : '删除此版本'),
+            h(Button, {
               key: 'restore',
               variant: 'primary',
               size: 'sm',
@@ -3056,13 +3096,14 @@ const since = (timestamp) => {
               h('span', { className: 'wsp-version-title', key: 't' }, `第 ${version.index + 1} 版`),
               h('span', { className: 'wsp-version-meta', key: 'm' },
                 `${String(version.at).replace('T', ' ').slice(5, 19)}　+${version.added} / −${version.removed}`),
+              h('span', { className: 'wsp-version-hash', key: 'h' }, `${version.hash ?? ''}`),
               h('span', { className: 'wsp-version-preview', key: 'p' }, version.preview || '（无可显示的改动行）'),
             ]))),
           h('div', { className: 'wsp-versions-diff', key: 'd' }, diffState === undefined
             ? h('div', { className: 'wsp-card-note' }, '左侧选一个版本，这里显示它相对上一版的改动。')
             : [
               h('div', { className: 'wsp-diff-head', key: 'h' },
-                `${String(diffState.at).replace('T', ' ').slice(0, 19)}　·　${diffState.action === 'restore' ? '恢复' : diffState.action === 'create' ? '新建' : '修改'}　·　+${diffState.added} / −${diffState.removed}`),
+                `${String(diffState.at).replace('T', ' ').slice(0, 19)}　·　${diffState.action === 'restore' ? '恢复' : diffState.action === 'create' ? '新建' : '修改'}　·　+${diffState.added} / −${diffState.removed}　·　${diffState.hash ?? ''}`),
               h('div', { className: 'wsp-diff-body', key: 'b' }, diffLines),
             ]),
         ]))

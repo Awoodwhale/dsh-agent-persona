@@ -27,6 +27,7 @@ export const RPC_ENDPOINTS = [
   'listVersions',
   'versionDiff',
   'restoreVersion',
+  'deleteVersion',
 ] as const
 
 /** The three reads that take no argument. Everything else receives one JSON object. */

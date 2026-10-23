@@ -54,5 +54,6 @@ export const RPC_REMOTE = {
     method("listVersions", withInput()),
     method("versionDiff", withInput()),
     method("restoreVersion", withInput()),
+    method("deleteVersion", withInput()),
   ],
 }

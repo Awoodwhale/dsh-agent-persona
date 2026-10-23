@@ -45,6 +45,7 @@ export const TYPERT = {
           { name: "listVersions", kind: "method", signature: "(input: unknown): Promise<unknown>" },
           { name: "versionDiff", kind: "method", signature: "(input: unknown): Promise<unknown>" },
           { name: "restoreVersion", kind: "method", signature: "(input: unknown): Promise<unknown>" },
+          { name: "deleteVersion", kind: "method", signature: "(input: unknown): Promise<unknown>" },
         ],
         types: [],
       },
@@ -261,6 +262,22 @@ export const TYPERT = {
           service: "agentPersona",
           namespace: "agentPersona",
           method: "restoreVersion",
+          invocation: direct,
+          parameters: [
+        {
+          name: "input",
+          wire: "input",
+          source: "json",
+          codec: jsonCodec("Json"),
+        },
+      ],
+          result: result("Json"),
+        },
+        {
+          id: `dsh-agent-persona#agentPersona/deleteVersion`,
+          service: "agentPersona",
+          namespace: "agentPersona",
+          method: "deleteVersion",
           invocation: direct,
           parameters: [
         {

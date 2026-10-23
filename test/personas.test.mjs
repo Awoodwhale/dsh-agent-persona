@@ -682,8 +682,8 @@ assert.equal(mod.applyDiff('', mod.diffLines('', 'a\nb')), 'a\nb', 'creating a t
 assert.equal(mod.applyDiff(vhOriginal, mod.diffLines(vhOriginal, vhOriginal)), vhOriginal, 'no change is an identity diff')
 
 const vhHistory = { version: 1, personas: {} }
-assert.equal(mod.recordVersion(vhHistory, 'p1', 'a\nb', 'a\nb', 'update'), false, 'an unchanged save records nothing')
-assert.equal(mod.recordVersion(vhHistory, 'p1', 'a\nb', 'a\nb\nc', 'update', '2026-01-01T00:00:00Z'), true, 'a change records one version')
+assert.equal(mod.recordVersion(vhHistory, 'p1', 'a\nb', 'a\nb', 'update').recorded, false, 'an unchanged save records nothing')
+assert.equal(mod.recordVersion(vhHistory, 'p1', 'a\nb', 'a\nb\nc', 'update', '2026-01-01T00:00:00Z').recorded, true, 'a change records one version')
 mod.recordVersion(vhHistory, 'p1', 'a\nb\nc', 'a\nB\nc', 'update', '2026-01-02T00:00:00Z')
 mod.recordVersion(vhHistory, 'p1', 'a\nB\nc', 'a\nB\nc\nd', 'update', '2026-01-03T00:00:00Z')
 assert.equal(vhHistory.personas.p1.base, 'a\nb', 'the first text stays as the replay base')
@@ -716,9 +716,47 @@ assert.equal(mod.versionTextAt(cappedState, mod.MAX_VERSIONS - 1), 'v2', 'the ne
 const drifted = { version: 1, personas: {} }
 mod.recordVersion(drifted, 'p3', 'one\ntwo', 'one\ntwo\nthree', 'update', '2026-03-01T00:00:00Z')
 drifted.personas.p3.base = 'something else entirely'
-assert.equal(mod.recordVersion(drifted, 'p3', 'one\ntwo\nthree', 'one\ntwo\nthree\nfour', 'update', '2026-03-02T00:00:00Z'), true, 'a drifted chain does not block the next save')
+assert.equal(mod.recordVersion(drifted, 'p3', 'one\ntwo\nthree', 'one\ntwo\nthree\nfour', 'update', '2026-03-02T00:00:00Z').recorded, true, 'a drifted chain does not block the next save')
 assert.equal(drifted.personas.p3.versions.length, 1, 'the unusable history is dropped')
 assert.equal(mod.versionTextAt(drifted.personas.p3, 0), 'one\ntwo\nthree\nfour', 'and the new baseline replays correctly')
+
+// The same text saved twice is the same version: an undo, a restore-then-save, or importing a body that
+// already exists must not add a second row that differs only by its timestamp.
+const dedup = { version: 1, personas: {} }
+assert.equal(mod.recordVersion(dedup, 'p4', '', 'A\nB', 'create', '2026-04-01T00:00:00Z').recorded, true, 'the first text is a version')
+const back = mod.recordVersion(dedup, 'p4', 'A\nB', 'A\nB\nC', 'update', '2026-04-02T00:00:00Z')
+assert.equal(back.recorded, true, 'a different text is another version')
+const walkBack = mod.recordVersion(dedup, 'p4', 'A\nB\nC', 'A\nB', 'update', '2026-04-03T00:00:00Z')
+assert.equal(walkBack.recorded, false, 'walking back to a text that is already stored adds nothing')
+assert.equal(walkBack.duplicateOf, 0, 'and reports which stored version it duplicates')
+assert.equal(dedup.personas.p4.versions.length, 2, 'the chain did not grow')
+assert.equal(mod.versionTextAt(dedup.personas.p4, 1), 'A\nB\nC', 'the newest stored text is unchanged')
+assert.match(mod.hashText('A\nB'), /^[0-9a-f]{16}$/, 'the stored hash is a short sha256')
+
+// Deleting a version keeps the rest replayable: the following versions are re-diffed against the new
+// predecessor instead of pointing at text that no longer exists.
+const del = { version: 1, personas: {} }
+const delTexts = ['1', '1\n2', '1\n2\n3', '1\n2\n3\n4']
+let delPrev = ''
+for (const [i, text] of delTexts.entries()) {
+  mod.recordVersion(del, 'p5', delPrev, text, i === 0 ? 'create' : 'update', `2026-05-0${i + 1}T00:00:00Z`)
+  delPrev = text
+}
+assert.equal(del.personas.p5.versions.length, 4, 'four versions were recorded')
+mod.deleteVersionAt(del.personas.p5, 1)
+assert.equal(del.personas.p5.versions.length, 3, 'one version is gone')
+assert.equal(mod.versionTextAt(del.personas.p5, 0), '1', 'the oldest version still replays')
+assert.equal(mod.versionTextAt(del.personas.p5, 1), '1\n2\n3', 'the version after the hole replays from the one before it')
+assert.equal(mod.versionTextAt(del.personas.p5, 2), '1\n2\n3\n4', 'the newest version still replays too')
+assert.equal(del.personas.p5.versions[1].hash, mod.hashText('1\n2\n3'), 'the re-diffed entry carries its own hash')
+assert.deepEqual(mod.diffStats(del.personas.p5.versions[1].ops), { added: 2, removed: 0 }, 'the re-diffed stats describe the new step (two added lines, no removed ones)')
+mod.deleteVersionAt(del.personas.p5, 0)
+assert.equal(mod.versionTextAt(del.personas.p5, 0), '1\n2\n3', 'deleting the oldest version keeps the chain anchored on the base')
+assert.equal(del.personas.p5.base, '', 'the base snapshot itself is untouched')
+assert.throws(() => mod.deleteVersionAt(del.personas.p5, 9), /版本不存在/, 'deleting past the end is refused')
+mod.deleteVersionAt(del.personas.p5, 1)
+mod.deleteVersionAt(del.personas.p5, 0)
+assert.equal(del.personas.p5.versions.length, 0, 'the last version can be deleted')
 
 console.log(JSON.stringify({
   ok: true,

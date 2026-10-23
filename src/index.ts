@@ -725,14 +725,20 @@ const chainMatches = (state, beforeText) => {
   }
 }
 
+/** Content hash of a version's text. Two versions that hash the same are the same text. */
+export const hashText = (text) => createHash('sha256').update(String(text ?? ''), 'utf8').digest('hex').slice(0, 16)
+
 /**
  * Record one new version. `before` is the text the persona had, `after` the text it now has.
- * Returns false when the history is off or nothing changed.
+ *
+ * A save whose text already exists in the chain is not a new version: edits that walk back to an earlier
+ * text (undo, restore then save, an import of the same body) would otherwise pile up entries that differ
+ * only in their timestamp. Returns `{ recorded: false, duplicateOf }` in that case.
  */
 export const recordVersion = (history, personaId, before, after, action, now = new Date().toISOString()) => {
   const beforeText = String(before ?? '')
   const afterText = String(after ?? '')
-  if (beforeText === afterText) return false
+  if (beforeText === afterText) return { recorded: false }
   const ops = diffLines(beforeText, afterText)
   const stats = diffStats(ops)
   let state = history.personas[personaId]
@@ -746,13 +752,17 @@ export const recordVersion = (history, personaId, before, after, action, now = n
     state.baseAt = now
     state.versions = []
   }
+  const hash = hashText(afterText)
+  // Checked after the re-base above: a re-based chain has no versions left to collide with.
+  const duplicateOf = state.versions.findIndex((version) => version?.hash === hash)
+  if (duplicateOf !== -1) return { recorded: false, duplicateOf }
   state.versions.push({
     at: now,
     action,
     ops,
     added: stats.added,
     removed: stats.removed,
-    hash: createHash('sha256').update(afterText, 'utf8').digest('hex').slice(0, 16),
+    hash,
     size: Buffer.byteLength(afterText, 'utf8'),
   })
   // Fold the oldest versions into the base once the cap is hit, so every kept version stays replayable.
@@ -761,7 +771,33 @@ export const recordVersion = (history, personaId, before, after, action, now = n
     state.base = applyDiff(state.base, oldest.ops)
     state.baseAt = oldest.at
   }
-  return true
+  return { recorded: true }
+}
+
+/**
+ * Drop one version and re-diff what is left, so every remaining version still replays from the base.
+ * The dropped entry's text stops being reachable; the others keep their timestamp, action and text.
+ * Returns how many versions remain.
+ */
+export const deleteVersionAt = (state, index) => {
+  const versions = Array.isArray(state?.versions) ? state.versions : []
+  if (!Number.isInteger(index) || index < 0 || index >= versions.length) throw new Error('版本不存在')
+  const texts = versions.map((_, at) => versionTextAt(state, at))
+  const kept = versions.filter((_, at) => at !== index)
+  const keptTexts = texts.filter((_, at) => at !== index)
+  let previous = state.base
+  kept.forEach((version, at) => {
+    const ops = diffLines(previous, keptTexts[at])
+    const stats = diffStats(ops)
+    version.ops = ops
+    version.added = stats.added
+    version.removed = stats.removed
+    version.hash = hashText(keptTexts[at])
+    version.size = Buffer.byteLength(keptTexts[at], 'utf8')
+    previous = keptTexts[at]
+  })
+  state.versions = kept
+  return kept.length
 }
 
 // ─────────────────────────────────────────────────────────── matching
@@ -1554,6 +1590,15 @@ class WorkspacePersonaService extends TypertRemoteService {
     }
   }
 
+  /** Drop one stored version (the chain is re-diffed afterwards). */
+  async deleteVersion(input) {
+    try {
+      return this.runtime.deleteVersion(input)
+    } catch (error) {
+      return { error: `deleteVersion failed: ${errorMessage(error)}` }
+    }
+  }
+
   /** Remove one persona. */
   async deletePersona(input) {
     try {
@@ -1908,10 +1953,11 @@ export function apply(ctx, config = {}) {
   /** Read + write the history file around one mutation; a disabled switch costs nothing. */
   const historyEnabled = () => currentStore().prefs?.history === true
   const recordIfEnabled = (personaId, before, after, action) => {
-    if (!historyEnabled() || personaId === undefined) return
+    if (!historyEnabled() || personaId === undefined) return { recorded: false }
     const history = readHistory(storePath, warn)
-    if (!recordVersion(history, personaId, before, after, action)) return
-    writeHistory(storePath, history, warn)
+    const result = recordVersion(history, personaId, before, after, action)
+    if (result.recorded) writeHistory(storePath, history, warn)
+    return result
   }
 
   /** Forget a deleted persona's versions; the history of something that no longer exists is just growth. */
@@ -1950,6 +1996,7 @@ export function apply(ctx, config = {}) {
           added: version.added,
           removed: version.removed,
           size: version.size,
+          hash: version.hash ?? '',
           preview: (version.ops ?? []).find((op) => op.t === '+')?.lines?.[0] ?? '',
         })),
       }
@@ -1974,6 +2021,7 @@ export function apply(ctx, config = {}) {
         added: version.added,
         removed: version.removed,
         ops: version.ops,
+        hash: version.hash ?? '',
         before,
         after,
         current: persona.text,
@@ -1990,10 +2038,31 @@ export function apply(ctx, config = {}) {
       const before = persona.text
       persona.text = text
       commit(current)
-      recordIfEnabled(id, before, text, 'restore')
+      const recorded = recordIfEnabled(id, before, text, 'restore')
       info(`restored persona "${persona.name}" to version ${String(input?.index)}`)
       const result = view()
-      result.notice = `已恢复到第 ${Number(input?.index) + 1} 个版本`
+      result.notice = recorded.duplicateOf === undefined
+        ? `已恢复到第 ${Number(input?.index) + 1} 个版本`
+        : `已恢复到第 ${Number(input?.index) + 1} 个版本（正文与第 ${recorded.duplicateOf + 1} 个版本相同，未新增记录）`
+      return result
+    },
+    /** Drop one stored version; the remaining versions are re-diffed so the chain stays replayable. */
+    deleteVersion(input) {
+      const current = editableStore()
+      const id = typeof input?.id === 'string' ? input.id : ''
+      const persona = current.personas.find((item) => item.id === id)
+      if (persona === undefined) throw new Error('人设不存在（可能已被删除）')
+      const history = readHistory(storePath, warn)
+      const state = history.personas[id]
+      const index = Number(input?.index)
+      const removed = versionTextAt(state, index)
+      const remaining = deleteVersionAt(state, index)
+      if (remaining === 0) delete history.personas[id]
+      writeHistory(storePath, history, warn)
+      info(`deleted version ${String(index)} of persona "${persona.name}" (${String(remaining)} left)`)
+      const result = view()
+      result.notice = `已删除第 ${index + 1} 个版本`
+      result.deleted = { index, size: Buffer.byteLength(removed, 'utf8') }
       return result
     },
     /** Merge preferences into the store; every field is optional so one switch can be saved. */
@@ -2006,7 +2075,11 @@ export function apply(ctx, config = {}) {
     },
     save(input) {
       const current = editableStore()
-      const next = normalizeInput(input, current)
+      // Fall back to the stored persona, not to the store: a payload that names an id and one field must
+      // keep everything it did not mention, and `{ ...store }` has none of those fields at the top level.
+      const requestedId = input !== null && typeof input?.id === 'string' && input.id !== '' ? input.id : undefined
+      const existing = requestedId === undefined ? undefined : current.personas.find((item) => item.id === requestedId)
+      const next = normalizeInput(input, existing)
       const beforeText = next.id === undefined ? '' : (current.personas.find((item) => item.id === next.id)?.text ?? '')
       const created = next.id === undefined
       let persona
@@ -2038,8 +2111,11 @@ export function apply(ctx, config = {}) {
         }
       }
       commit(current)
-      if (next.text !== beforeText) recordIfEnabled(persona.id, beforeText, next.text, created ? 'create' : 'update')
+      const recorded = next.text === beforeText ? { recorded: false } : recordIfEnabled(persona.id, beforeText, next.text, created ? 'create' : 'update')
       const result = view()
+      if (recorded.recorded === false && recorded.duplicateOf !== undefined) {
+        result.notice = `正文与第 ${recorded.duplicateOf + 1} 个版本相同，没有新增版本`
+      }
       if (released.length > 0) {
         result.notice = `「${persona.name}」现在是默认人设；「${released.join('」「')}」已取消默认`
         info(`default persona moved from: ${released.join(', ')}`)

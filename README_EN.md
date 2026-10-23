@@ -121,6 +121,11 @@ Turn on **Save persona version history** in Settings and every save records the 
 - **Text only**: name, enabled flag and targets are not versioned.
 - **Diffs, not snapshots**: equal runs are stored as line counts; only changed lines keep their text.
 - **Restore**: pick any version and restore it; the restore itself is recorded, so it can be undone too.
+- **Delete**: pick a version and press Delete (twice: the first press arms it). The versions after it are
+  re-diffed against its predecessor, so the chain stays replayable.
+- **One row per text**: each record carries the first 16 hex characters of its text's sha256. A save whose
+  text hashes to a version that is already stored adds nothing — undo, restore-then-save and importing the
+  same body all land on the existing row. The hash is shown in the row and in the diff header.
 - **Chained replay**: the first text is the base snapshot, later versions replay on top of it; past 200
   versions the oldest are folded into the base. A content hash per record makes a hand-edited history fail
   loudly instead of restoring different text.
