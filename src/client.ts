@@ -288,10 +288,30 @@ const readPrefs = () => {
         return { ...DEFAULT_PREFS }
       }
     }
-    /** Status line for a preference change: the two display switches only take effect on reload. */
-    const prefStatus = (next, patch) => ('showTab' in patch || 'showSidebar' in patch)
-      ? '已保存：已立即生效'
-      : (next.autosave === true ? '已开启：编辑后停止输入约 1 秒即自动保存' : '已关闭：编辑后自动保存')
+    /**
+     * Status line for a preference change, keyed on the switch that actually moved.
+     *
+     * The message used to be picked from `patch` only for the two display switches and from
+     * `next.autosave` for everything else, so flipping 守卫 or 版本历史 answered with a sentence about
+     * 自动保存 — a toast about a switch nobody touched. And the answer was then identical in both
+     * directions of those switches, so a second flip re-set the very same string: same key, same text,
+     * the toast never remounted, and the change read as silent.
+     *
+     * One sentence per switch, and each one names the switch it reports on.
+     */
+    const PREF_STATUS = {
+      autosave: (on) => (on ? '已开启：编辑后停止输入约 1 秒即自动保存' : '已关闭：改完要自己点保存'),
+      showTab: (on) => (on ? '已显示「人设」标签（刷新页面后出现）' : '已隐藏「人设」标签（刷新页面后生效）'),
+      showSidebar: (on) => (on ? '已注册到 dsh-better-sidebar' : '已从 dsh-better-sidebar 注销'),
+      guard: (on) => (on ? '已开启：模型的写入与命令工具不能再改人设存储' : '已关闭：模型可以直接改写人设存储'),
+      history: (on) => (on ? '已开启：每次保存都会记一条版本历史' : '已关闭：不再记新版本，已有历史仍可查看与恢复'),
+    }
+    /** Reading the key off `patch` (not off the merged prefs) is what keeps a switch talking about itself. */
+    const prefStatus = (patch) => {
+      const key = Object.keys(patch ?? {}).find((name) => Object.prototype.hasOwnProperty.call(PREF_STATUS, name))
+      if (key === undefined) return '已保存'
+      return PREF_STATUS[key](patch[key] === true)
+    }
 
     /**
      * Persist preferences through the host so they live in the same file as the personas, and keep the
@@ -300,7 +320,7 @@ const readPrefs = () => {
      */
     const persistPrefs = (api, unwrap, current, patch, report) => {
       const next = writePrefs({ ...current, ...patch })
-      report({ prefs: next, status: prefStatus(next, patch) })
+      report({ prefs: next, status: prefStatus(patch) })
       syncSidebarModule()
       if (api === undefined || typeof api.savePrefs !== 'function') return next
       void api.savePrefs(next).then((result) => {
@@ -1328,6 +1348,10 @@ const since = (timestamp) => {
           busy: '',
           error: '',
           status: '',
+          // Bumped on every status write. The toast is keyed on it, so the same sentence twice in a
+          // row (toggling one switch off and on again) remounts instead of silently extending the
+          // toast that is already on screen.
+          statusSeq: 0,
           transfer: undefined,
         }
         this.mounted = false
@@ -1336,8 +1360,15 @@ const since = (timestamp) => {
         this.importTextRef = React.createRef()
         this.importHighlightRef = React.createRef()
         this.importTimer = undefined
+        this.statusSeq = 0
         this.onChange = (patch) => {
-          if (this.mounted) this.setState(patch)
+          if (!this.mounted) return
+          if (patch !== null && typeof patch === 'object' && 'status' in patch) {
+            this.statusSeq += 1
+            this.setState({ ...patch, statusSeq: this.statusSeq })
+            return
+          }
+          this.setState(patch)
         }
         this.onKeyDown = (event) => {
           if (!(event.metaKey || event.ctrlKey) || String(event.key).toLowerCase() !== 's') return
@@ -2761,7 +2792,10 @@ const since = (timestamp) => {
           : state.status === ''
             ? null
             : h(Toast, {
-              key: 'st',
+              // Keyed on the sequence, not on a constant: a repeated sentence has to mount a fresh
+              // toast. With a fixed key React reuses the instance, its dismiss timer keeps running,
+              // and the second flip of a switch produced no toast at all.
+              key: `st-${String(state.statusSeq)}`,
               text: state.status,
               icon: h(IconCheckOutline14, {}),
               onDone: () => this.onChange({ status: '' }),

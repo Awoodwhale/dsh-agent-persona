@@ -363,4 +363,29 @@ assert.equal(/animation:[^;]*\bboth\b/.test(cssOnly), false, 'no animation uses 
 assert.ok(source.includes('animation: wsp-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards'), 'the panel enters with a backwards fill')
 assert.ok(source.includes('transform: none; } }'), 'and its last keyframe is an explicit transform: none')
 
+// ── the preference toast speaks about the switch that moved
+// Every switch used to answer with the autosave sentence (the message was picked from `next.autosave`
+// unless the patch touched one of the two display switches), so flipping 守卫 or 版本历史 popped a toast
+// about a control nobody had touched. The string was also identical in both directions, which a toast
+// keyed on a constant swallowed: the second flip re-set the same text, the component was reused, and no
+// new toast appeared at all. The table is executed here rather than grepped — it is plain data plus a
+// pure function, so slicing it out of the source and calling it is stricter than asserting on its text.
+const prefStart = source.indexOf('const PREF_STATUS = {')
+const prefEnd = source.indexOf('const persistPrefs =', prefStart)
+assert.ok(prefStart !== -1 && prefEnd > prefStart, 'the per-switch status table sits next to the persister')
+const prefStatus = new Function(`${source.slice(prefStart, prefEnd)}\nreturn prefStatus`)()
+assert.equal(prefStatus({ autosave: true }), '已开启：编辑后停止输入约 1 秒即自动保存', 'autosave on reports autosave')
+assert.equal(prefStatus({ autosave: false }), '已关闭：改完要自己点保存', 'autosave off no longer claims it keeps saving')
+assert.equal(prefStatus({ guard: false }).includes('自动保存'), false, 'the guard switch never talks about autosave')
+assert.equal(prefStatus({ guard: true }).includes('模型'), true, 'and says what is guarded, from whom')
+assert.equal(prefStatus({ history: true }).includes('自动保存'), false, 'the history switch never talks about autosave')
+assert.notEqual(prefStatus({ history: true }), prefStatus({ history: false }), 'a switch says something different in each direction')
+assert.equal(prefStatus({ showTab: false }).includes('刷新'), true, 'the tab switch still says the change lands on reload')
+assert.equal(prefStatus({}), '已保存', 'an unrecognised patch still reports something')
+// A repeated sentence has to mount a fresh toast, so the element is keyed on a counter that every
+// status write advances — not on a constant the reconciler reuses.
+assert.ok(source.includes('key: `st-${String(state.statusSeq)}`'), 'the toast is keyed on the status sequence')
+assert.ok(source.includes('this.statusSeq += 1'), 'which every status write advances')
+assert.ok(source.includes("'status' in patch"), 'including writes that repeat the sentence already on screen')
+
 console.log(JSON.stringify({ ok: true, clientChecks: assertions }))

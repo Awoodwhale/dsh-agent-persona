@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-10-23
+
+### Fixed
+
+- **开关的 toast 只讲自己那件事。** 提示文案原来只对两个显示开关按 `patch` 取，其余一律按
+  `next.autosave` 计算，于是拨动「禁止模型改写人设文件」或「保存人设版本历史」时弹出来的是
+  「编辑后自动保存」——一个这次根本没碰的开关的话。现在每个偏好各有一条按方向分岔的句子
+  （`PREF_STATUS`），键从 `patch` 上读，未知键退化成「已保存」。
+- **同一句提示连拨两次也会再弹一次。** toast 原来用固定 `key`，第二次拨回同一状态时 React 复用
+  同一个组件实例：文案一样、key 一样，定时器继续走，屏幕上看不到新提示。现在 `status` 每次写入都
+  推进一个 `statusSeq`，toast 按它做 key，重复的句子也会重新挂载。这也是「开启没反应、关闭才弹」
+  的成因之一：两个方向的文案本来就相同，第二次写入被吞掉了。
+- 顺带把「关闭自动保存」的文案从「已关闭：编辑后自动保存」改成「已关闭：改完要自己点保存」。原文案
+  在关闭状态下仍然宣称会自动保存。
+
 ## [0.1.6] - 2026-10-22
 
 ### Added
