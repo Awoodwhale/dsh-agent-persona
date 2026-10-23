@@ -19,7 +19,7 @@ src/index.ts  ──tsc──▶  lib/index.js + lib/index.d.ts      │（前�
 src/client.ts ──esbuild --bundle──▶ lib/client.js  ◀───────┘
 ```
 
-- `src/endpoints.ts` 是**远程面的单一来源**（包名、通道名、服务名、12 个方法名、哪些方法收参数）。
+- `src/endpoints.ts` 是**远程面的单一来源**（包名、通道名、服务名、15 个方法名、哪些方法收参数）。
 - `src/remote.ts` / `src/typert.ts` 是**生成产物，不要手改**：改 `endpoints.ts` 后跑 `npm run generate:remote`；
   `npm test` 的最后一步会重新生成并比对，不一致就失败。
 - host 是标准的 Cordis 插件（`export const name / inject / apply`），import Node 内置模块、
@@ -131,7 +131,7 @@ host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `supe
 | `sessionPrompt` | `{ id }` | `{ available, cwd, reason, matchedBy, persona, prompt }` —— 对话页「人设 / 提示词」两个面板的数据 |
 | `tunePersona` | `{ mode, instruction, text, provider?, model? }` | `{ text, mode, provider, model, source }` |
 | `listModels` | — | `{ models[], hostDefault, configured }` |
-| `savePrefs` | `{ autosave?, showTab?, showSidebar? }` | 视图（部分合并，未提及的字段保留） |
+| `savePrefs` | `{ autosave?, showTab?, showSidebar?, guard?, history? }` | 视图（部分合并，未提及的字段保留） |
 
 约定（踩出来的）：
 
@@ -154,7 +154,7 @@ host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `supe
 
 ## 6. 界面偏好
 
-四个偏好（`autosave` / `showTab` / `showSidebar` / `guard`）**存在人设文件的 `prefs` 里**，与数据同域，经 `savePrefs` 写入；
+五个偏好（`autosave` / `showTab` / `showSidebar` / `guard` / `history`）**存在人设文件的 `prefs` 里**，与数据同域，经 `savePrefs` 写入；
 每个 `listPersonas` / `sessionPrompt` 的返回都带上它们。`guard` 默认开启，缺字段即视为开启
 （`raw?.guard !== false`），所以旧存储不需要迁移。
 

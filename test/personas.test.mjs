@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 // Count the assertions that actually run. The count used to be a literal, so adding assertions silently
@@ -26,7 +26,15 @@ const stateDir = join(home, 'dsh-agent-persona')
 const storePath = join(stateDir, 'personas.json')
 const heartbeatPath = join(stateDir, 'state.json')
 
-const mod = await import(new URL('../lib/index.js', import.meta.url).href)
+// The host half is read from the build output, because that is what a deployment loads. A missing build is the
+// one failure worth explaining: the stack trace of a failed module resolution says nothing about `npm run build`.
+const mod = await import(new URL('../lib/index.js', import.meta.url).href).catch((error) => {
+  if (error?.code === 'ERR_MODULE_NOT_FOUND') {
+    console.error('lib/index.js is missing — run `npm run build` first (it also regenerates src/remote.ts).')
+    process.exit(1)
+  }
+  throw error
+})
 const { collectLastSystemPrompt, sessionPromptFrom } = mod
 const { applyPersonaMode, backupStamp, backupStoreFile, clipMarkdown, collectSessionHistory, historyOptions, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
 
@@ -41,6 +49,11 @@ assert.equal(matchTarget(T('workspace', 'exact', WS), { cwd: OTHER }), false)
 assert.equal(matchTarget(T('workspace', 'exact', `${WS}/`), { cwd: WS }), true, 'a trailing slash is the same directory')
 assert.equal(matchTarget(T('workspace', 'prefix', '/tmp/ws'), { cwd: WS }), true)
 assert.equal(matchTarget(T('workspace', 'prefix', '/tmp/other'), { cwd: WS }), false)
+// A prefix is a directory, not a string prefix: the project next door shares the first characters and must
+// not pick up the persona (`/tmp/ws` vs `/tmp/ws-legacy`).
+assert.equal(matchTarget(T('workspace', 'prefix', '/tmp/ws'), { cwd: '/tmp/ws-legacy' }), false, 'a longer sibling name is not inside the prefix')
+assert.equal(matchTarget(T('workspace', 'prefix', '/tmp/ws/'), { cwd: WS }), true, 'a trailing slash on the prefix is fine')
+assert.equal(matchTarget(T('workspace', 'exact', '~/proj'), { cwd: join(homedir(), 'proj') }), true, '~ is the home directory')
 assert.equal(matchTarget(T('workspace', 'contains', 'web-app'), { cwd: WS }), true, 'a bare substring is usable on a path')
 assert.equal(matchTarget(T('workspace', 'regex', '^/tmp/ws/(web-app|docs)$'), { cwd: WS }), true)
 assert.equal(matchTarget(T('sessionId', 'exact', 'im-bot-1a2b-g3'), { sessionId: 'im-bot-1a2b-g3' }), true)
@@ -421,7 +434,20 @@ assert.equal(guard({ name: 'write', arguments: { path: `${dirname(storePath)}/no
 assert.equal(guard({ name: 'write', arguments: { path: '/tmp/anything.md' } }), undefined, 'unrelated paths stay writable')
 assert.equal(guard({ name: 'bash', arguments: { command: `cat ${storePath}` } }), undefined, 'reading the store stays allowed')
 assert.equal(typeof guard({ name: 'bash', arguments: { command: `rm -f ${storePath}` } }), 'string', 'removing the store is refused')
-assert.equal(typeof guard({ name: 'bash', arguments: { command: `jq . ${storePath} > /tmp/c.json` } }), 'string', 'a redirect that mentions the store is refused')
+// "mentions the store" is not "writes the store": reading it into a file elsewhere is exactly what a
+// session explaining the store does, and it used to be refused because `>` appeared next to the path.
+assert.equal(guard({ name: 'bash', arguments: { command: `jq . ${storePath} > /tmp/c.json` } }), undefined, 'reading the store into another file is allowed')
+assert.equal(typeof guard({ name: 'bash', arguments: { command: `jq . /tmp/c.json > ${storePath}` } }), 'string', 'a redirect onto the store is refused')
+assert.equal(typeof guard({ name: 'bash', arguments: { command: `cat ${storePath} >> ${storePath}` } }), 'string', 'and so is appending to it')
+assert.equal(guard({ name: 'bash', arguments: { command: `cat ${storePath} 2>/dev/null` } }), undefined, 'a discarded stderr is not a write')
+// The decision is "would this call write the protected file", not "is the tool on a list": a plugin tool
+// this one has never heard of writes the store just as well.
+assert.equal(typeof guard({ name: 'str_replace_editor', arguments: { command: 'create', path: storePath, file_text: '{}' } }), 'string', 'an unknown file tool that names the store is refused')
+assert.equal(typeof guard({ name: 'terminal_send', arguments: { input: `del ${storePath}` } }), 'string', 'an unknown shell tool that deletes the store is refused')
+assert.equal(typeof guard({ name: 'apply_patch', arguments: { patch: `*** Begin Patch\n*** Update File: ${storePath}\n@@\n-a\n+b\n*** End Patch` } }), 'string', 'a patch body that names the store is refused')
+assert.equal(guard({ name: 'apply_patch', arguments: { patch: `*** Begin Patch\n*** Update File: ${dirname(storePath)}/notes.md\n@@\n-a\n+b\n*** End Patch` } }), undefined, 'a patch that only lives beside it stays allowed')
+assert.equal(typeof guard({ name: 'write', arguments: { path: `${storePath}.bak-20260101-000000-000`, content: 'x' } }), 'string', 'a backup of the store is the store')
+assert.equal(typeof guard({ name: 'bash', arguments: { command: `rm -f ${storePath}.tmp-1` } }), 'string', 'and so is a temp copy')
 assert.equal(typeof guard({ name: 'edit', arguments: { file_path: storePath, old: 'a', new: 'b' } }), 'string', 'and so is an edit')
 // The guard must not read "mentions the store" as "writes the store": a read-only tool cannot rewrite it,
 // and denying one hides the file from the session that has to explain it.
@@ -445,13 +471,19 @@ utimesSync(storePath, onStamp, onStamp)
 assert.equal(typeof guard({ name: 'write', arguments: { path: storePath } }), 'string', 'and switching it back on refuses again')
 
 // ── a file that exists but cannot be used must be preserved before the first write replaces it
-assert.equal(backupStamp(new Date('2026-09-20T08:12:34')), '20260920-081234', 'the backup stamp is filename-safe local time')
+assert.equal(backupStamp(new Date('2026-09-20T08:12:34')), '20260920-081234-000', 'the backup stamp is filename-safe local time')
+// Two backups in the same second used to share a name, so the second silently replaced the first.
+assert.notEqual(
+  backupStamp(new Date('2026-09-20T08:12:34.100')),
+  backupStamp(new Date('2026-09-20T08:12:34.900')),
+  'backups taken in the same second stay distinct',
+)
 const salvageDir = mkdtempSync(join(tmpdir(), 'wsp-salvage-'))
 const salvageStore = join(salvageDir, 'personas.json')
 const unreadable = '{"not": "a persona store"}\n'
 writeFileSync(salvageStore, unreadable)
 const salvaged = backupStoreFile(salvageStore, backupStamp(new Date('2026-09-20T08:12:34')))
-assert.ok(salvaged.endsWith('personas.json.bak-20260920-081234'), 'the copy lands beside the store with a stamp')
+assert.ok(salvaged.endsWith('personas.json.bak-20260920-081234-000'), 'the copy lands beside the store with a stamp')
 assert.equal(readFileSync(salvaged, 'utf8'), unreadable, 'the copy holds the original bytes')
 assert.equal(statSync(salvaged).mode & 0o777, 0o600, 'and carries the same restrictive mode')
 assert.equal(readFileSync(salvageStore, 'utf8'), unreadable, 'the original file is left where it was')
@@ -666,10 +698,27 @@ assert.throws(() => mod.applyDiff('different', vhHistory.personas.p1.versions[0]
 const capped = { version: 1, personas: {} }
 mod.recordVersion(capped, 'p2', 'v0', 'v1', 'update', '2026-02-01T00:00:00Z')
 const cappedState = capped.personas.p2
-cappedState.versions = Array.from({ length: mod.MAX_VERSIONS }, (_, i) => ({ ...cappedState.versions[0], at: `2026-02-01T00:00:${String(i).padStart(2, '0')}Z` }))
+// 200 versions that each replay to the same text: whatever the ops are, the chain has to describe `v1`
+// before the next save is recorded, or the recorder would (correctly) re-base and the cap would never apply.
+cappedState.base = 'v1'
+cappedState.versions = Array.from({ length: mod.MAX_VERSIONS }, (_, i) => ({
+  ...cappedState.versions[0],
+  ops: [],
+  at: `2026-02-01T00:00:${String(i).padStart(2, '0')}Z`,
+}))
 mod.recordVersion(capped, 'p2', 'v1', 'v2', 'update', '2026-02-02T00:00:00Z')
 assert.equal(cappedState.versions.length, mod.MAX_VERSIONS, 'the cap holds')
 assert.equal(cappedState.base, 'v1', 'folding the oldest diff into the base keeps the chain pointing at real text')
+assert.equal(mod.versionTextAt(cappedState, mod.MAX_VERSIONS - 1), 'v2', 'the newest version replays after folding')
+
+// A chain that no longer describes the current text (a hand edit of the store, a partial write, an older
+// bug) must not make every later save fail: the recorder re-bases and keeps going.
+const drifted = { version: 1, personas: {} }
+mod.recordVersion(drifted, 'p3', 'one\ntwo', 'one\ntwo\nthree', 'update', '2026-03-01T00:00:00Z')
+drifted.personas.p3.base = 'something else entirely'
+assert.equal(mod.recordVersion(drifted, 'p3', 'one\ntwo\nthree', 'one\ntwo\nthree\nfour', 'update', '2026-03-02T00:00:00Z'), true, 'a drifted chain does not block the next save')
+assert.equal(drifted.personas.p3.versions.length, 1, 'the unusable history is dropped')
+assert.equal(mod.versionTextAt(drifted.personas.p3, 0), 'one\ntwo\nthree\nfour', 'and the new baseline replays correctly')
 
 console.log(JSON.stringify({
   ok: true,

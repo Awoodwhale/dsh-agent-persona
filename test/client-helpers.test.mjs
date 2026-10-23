@@ -350,9 +350,15 @@ assert.equal(/state\.openId === persona\.id \? null : scopeLines\(persona\)/.tes
 assert.ok(source.includes('const Switch = ({ checked, disabled, label, hint, onChange })'), 'switches can carry an explanation')
 assert.ok(source.includes("title: hint === undefined ? label : undefined"), 'which replaces the label-as-title when present')
 assert.ok(source.includes('h(Tooltip, { label: hint, side: \'top\', delayMs: 260, maxWidth: 320 }, control)'), 'rendered as a real tooltip')
-assert.ok(source.includes("'aria-label': hint === undefined ? label : `${label}：${hint}`"), 'and folded into the accessible name')
+// The hint belongs in the description, not the name: a switch whose accessible name is a whole sentence is
+// unusable in a list read aloud, and `role="switch"` is what the track already looks like.
+assert.ok(source.includes("'aria-label': label,"), 'the accessible name is the label alone')
+assert.ok(source.includes("'aria-describedby': hint === undefined ? undefined : descriptionId,"), 'the hint is a description instead')
+assert.ok(source.includes("role: 'switch',"), 'and the control is announced as a switch')
+assert.ok(source.includes("'aria-checked': checked === true,"), 'with its state')
 assert.ok(source.includes('label: \'禁止模型改写人设文件\''), 'the guard switch says who is forbidden')
-assert.ok(source.includes('模型的文件与命令工具不能写入或删除人设存储'), 'and its explanation says what is blocked')
+assert.ok(source.includes('按能力判定：任何会写入或删除人设存储'), 'and its explanation says the decision is about the write, not the tool')
+assert.ok(source.includes('历史文件与备份副本'), 'and names everything under protection')
 assert.ok(source.includes('这是行为层面的限制，不是安全边界'), 'and what it is not')
 // A filled animation that ends with a transform keeps an identity matrix, which is still a transform and
 // therefore a containing block for the kit's fixed-position tooltips: opening one inside the view or the

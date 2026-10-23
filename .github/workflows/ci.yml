@@ -8,16 +8,40 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The engine range allows 22.19+ and 24; testing only one of them means the other ships untested.
+        node-version: [22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
       # The plugin has no runtime dependencies: the host provides every
       # @deepseek-ai/* service it uses. The build needs its devDependencies
       # (typescript, esbuild), and npm test also verifies that the generated
       # remote artifacts match src/endpoints.ts.
       - run: npm ci
       - run: npm run build
+      # `prepare` runs the build on install, so the checked-in generated files are rebuilt before anything
+      # can notice they had drifted. This compares them with what is committed: a changed endpoint without a
+      # regenerated remote.ts fails here instead of shipping.
+      - run: git diff --exit-code -- src/remote.ts src/typert.ts lib/
       - run: npm run typecheck
       - run: npm test
+
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # A published tarball is the only artifact consumers ever see; installing it is the only way to know it
+      # works. `files` used to leave out sources the build needs, which broke a rebuild from the tarball.
+      - run: npm ci
+      - run: npm pack
+      - run: mkdir -p /tmp/pack-smoke && cd /tmp/pack-smoke && npm init -y >/dev/null && npm install "$GITHUB_WORKSPACE"/dsh-agent-persona-*.tgz
+      - run: node -e "import('dsh-agent-persona').then((m) => { if (typeof m.apply !== 'function') throw new Error('module did not load'); })"
+        working-directory: /tmp/pack-smoke

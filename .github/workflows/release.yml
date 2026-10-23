@@ -35,7 +35,9 @@ on:
       dry_run:
         description: Pack and verify everything, but do not publish
         type: boolean
-        default: false
+        # A manual run publishes by default only if you say so: the safer default for a button whose job is
+        # to push a version to the whole world is "verify".
+        default: true
 
 permissions:
   contents: read
@@ -62,6 +64,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # A manual run has no tag to compare against, so the version is only checked there when a tag exists.
       - name: Verify release tag matches package.json version
         if: github.event_name == 'release'
         env:
@@ -79,6 +82,9 @@ jobs:
       # a pull request would have had to pass.
       - name: Build
         run: npm run build
+
+      - name: Generated artifacts are committed
+        run: git diff --exit-code -- src/remote.ts src/typert.ts lib/
 
       - name: Typecheck
         run: npm run typecheck

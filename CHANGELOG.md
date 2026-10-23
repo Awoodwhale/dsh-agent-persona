@@ -4,6 +4,61 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-10-23
+
+这一版几乎全部来自一次逐行读代码的审查：不改功能，修的是「它看起来在做 A，实际在做 B」的地方。
+
+### Fixed
+
+- **人设文件的守卫改成按能力判定，不再按工具名。** 原来维护两张工具名白名单，名单外的工具（`str_replace_editor`、
+  `terminal_send`，以及任何后来装上的插件工具）无论参数指向哪里都放行；`apply_patch` 的补丁正文更是完全看不见。
+  现在问的是「这次调用会不会写到受保护的文件」：参数里的路径（解析 `~` 与相对路径）、shell 行的重定向目标与写入型
+  命令、补丁正文里的 `*** Update File:` 目标，命中主文件、历史文件及其 `.bak-*`/`.tmp-*` 副本就拒。
+- **不再误杀只读的重定向。** `jq . <人设文件> > /tmp/c.json` 以前因为同一行里既有路径又有 `>` 而被拒；现在看的是
+  `>` 后面那个目标，写到别处就放行，写到人设文件才拒（`2>/dev/null` 也不再算写入）。
+- **`prefix` 规则不再把隔壁项目算进来。** `raw.startsWith(value)` 让 `/tmp/ws` 匹配到 `/tmp/ws-legacy`；现在两侧
+  `resolve` 后按分隔符比较，Windows 上按大小写不敏感比，`exact` 也开始认 `~/`。
+- **正则规则不再能卡死事件循环。** 长度上限 500 字符，编译缓存上限 64 条（原来既无上限也无淘汰）。
+- **局部更新不再毁字段。** `savePersona({ id, name })` 以前会把正文清空、把停用的人设重新启用（缺字段一律取默认值）；
+  现在每个字段都是「传了才覆盖」。
+- **保存失败不再留下脏内存。** 所有写操作先克隆当前 store 再改，持久化成功后才替换内存与时间戳；此前 `commit`
+  不刷新 `storeStamp`，写进去的内容下一次 reload 就被自己丢掉。
+- **版本历史坏掉不再让保存永久失败。** 记录前先校验链能否重放到当前正文，不能就重新以当前正文为基准（自愈），
+  而不是抛「版本历史损坏」；历史文件损坏时先复制成 `.bak-<时间戳>` 再重建，不再直接覆盖。
+- **`{"personas": []}` 不再静默吞掉全部版本。** 数组被当成对象接受，版本写到数组属性上，`JSON.stringify` 一序列化就没了。
+- **删除人设会清掉它的历史。** 之前 `personas.history.json` 只增不减。
+- **`duplicatePersona` 的副本保留注入方式。** 复制 `replace` 人设会退化成 `append`。
+- **备份文件名不再同秒覆盖。** 时间戳加到毫秒。
+- **`clipMarkdown` 不再劈开代理对。** 按 UTF-16 长度切片时可能停在半个 emoji 上，现在退一位。
+- **RPC 失败只回 `error.message`。** 以前把 `error.stack` 整段回给浏览器。
+- **配置里的 `tuneProvider` / `tuneModel` 进了 schema。** 代码一直在读它们，README 一直在写它们，只有校验层不认。
+- **设置页保存不再吞掉在途输入。** 保存返回时用服务端数据覆盖草稿，保存期间继续敲的字会消失；现在只有草稿没被改过
+  才覆盖，并用 `saveSeq` 丢弃过期响应。
+- **恢复版本、切换开关不再与在途保存打架。** 恢复前取消自动保存定时器并推进 `saveSeq`；版本 diff 请求带令牌，
+  过期响应不会覆盖新选择。
+- **关掉设置页不会再丢最后一次编辑。** 卸载时若草稿是脏的且自动保存开着，补一次保存。
+- **`Cmd/Ctrl+S` 不再能重入。** 保存中按快捷键会并发发两个请求。
+- **toast 不再常驻。** `onDone` 每次渲染都是新函数，宿主 `Toast` 的 `useEffect` 依赖它 → 定时器被不断续命。
+- **自动保存不再每次都弹两句话。** 去掉了先报的「正在自动保存…」，只留结果。
+- **偏好同步只发改动的那一项。** 以前发整份 prefs，两个标签页会互相覆盖。
+- **设置页刷新后偏好与存储一致。** `view.prefs` 现在也回填到界面状态，不只是写 localStorage。
+- **导入失败后重新拉取。** replace 模式中途失败会留下删了一半的列表。
+- **开关的无障碍语义。** `role="switch"` + `aria-checked` + `aria-describedby`（说明不再塞进 `aria-label` 变成一句话）。
+- **`injectStyles` 缓存不再指向已移除的节点。**
+
+### Changed
+
+- `files` 补上 `src`、`scripts/generate-remote.mjs` 与两份 tsconfig：以前 `npm ci` 之后 `prepare` 会用构建产物
+  覆盖源码，仓库里「生成产物漂移」的校验因此永远是绿的，而消费者从一个 tarball 里 rebuild 会直接失败。
+- CI 增加矩阵（Node 22 / 24）、`git diff --exit-code` 漂移门，以及一个把 tarball 装进空目录再 import 的冒烟 job。
+- `release.yml` 的手动触发默认 `dry_run: true`（以前默认直接发布）。
+- peer 依赖加上上界 `<0.3.0`：`>=` 表示「任何未来版本都能用」，这不成立。
+
+### Known
+
+- `exports["./client"]` 仍然没有 `types`：`lib/client.js` 是 esbuild 打成的一整个 IIFE，没有对应的 `.d.ts` 产物。
+  补它需要单独的类型入口，留给下一版。
+
 ## [0.1.7] - 2026-10-23
 
 ### Fixed

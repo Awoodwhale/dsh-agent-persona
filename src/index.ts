@@ -50,11 +50,23 @@ import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 
 import Schema from '@deepseek-ai/schemastery'
 import { RPC_ENDPOINTS } from './endpoints.js'
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  closeSync,
+  copyFileSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeSync,
+} from 'node:fs'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 
 export const name = 'agent-persona'
 /**
@@ -62,8 +74,11 @@ export const name = 'agent-persona'
  * when the row loads, and a wrong value fails loudly instead of being ignored.
  */
 export const Config = Schema.object({
-  /** Where the personas live. Empty means `$DSH_HOME/dsh-agent-persona/personas.json`. */
+  /** Where the personas live. Empty selects the default store under the DSH state directory. */
   storePath: Schema.string().default(''),
+  /** Provider and model the AI-tuning button calls. Empty means whatever DSH is set to. */
+  tuneProvider: Schema.string().default(''),
+  tuneModel: Schema.string().default(''),
 })
 
 export const inject = ['systemPrompt', 'connection', 'webServer', 'tools']
@@ -215,17 +230,44 @@ const loadStore = (storePath, warn) => {
   }
 }
 
-const persist = (store, storePath) => {
-  mkdirSync(dirname(storePath), { recursive: true })
-  const tmp = `${storePath}.tmp-${process.pid}`
-  writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 })
-  renameSync(tmp, storePath)
+/**
+ * Write a file so a crash leaves either the old bytes or the new ones: the temp file is flushed to disk
+ * before the rename, and the directory entry is flushed after it. Without the fsyncs a power cut can leave
+ * the renamed file present but empty, which for a store means "all personas gone".
+ */
+const writeFileDurable = (file, text, mode) => {
+  mkdirSync(dirname(file), { recursive: true })
+  const tmp = `${file}.tmp-${process.pid}`
+  const fd = openSync(tmp, 'w', mode)
+  try {
+    writeSync(fd, text)
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+  renameSync(tmp, file)
+  // A directory fsync is what makes the rename itself durable. Not every filesystem allows opening a
+  // directory for fsync; the bytes are already on disk, so a refusal here must not fail the write.
+  try {
+    const dir = openSync(dirname(file), 'r')
+    try {
+      fsyncSync(dir)
+    } finally {
+      closeSync(dir)
+    }
+  } catch {
+    // Directory fsync is not supported here; the file content itself is already durable.
+  }
 }
 
-/** Filename-safe local timestamp for a store backup. */
+const persist = (store, storePath) => {
+  writeFileDurable(storePath, `${JSON.stringify(store, null, 2)}\n`, 0o600)
+}
+
+/** Filename-safe local timestamp for a store backup (milliseconds keep same-second backups apart). */
 export const backupStamp = (now = new Date()) => {
   const pad = (value) => String(value).padStart(2, '0')
-  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}-${String(now.getMilliseconds()).padStart(3, '0')}`
 }
 
 /**
@@ -239,16 +281,164 @@ export const backupStoreFile = (storePath, stamp) => {
   return backupPath
 }
 
-/** Write features that turn "mentions the store" into "writes the store" inside one shell command. */
-const STORE_WRITE_MARKERS = ['>', 'rm ', 'rm\t', 'mv ', 'cp ', 'chmod', 'chflags', 'truncate', 'sed -i', 'tee ', 'write(', 'unlink(', 'rename(']
+/** One line for a failed RPC. The stack is the server's own detail; a settings panel has no use for it. */
+const errorMessage = (error) => String((error && error.message) || error)
 
 const STORE_REFUSAL = '人设存储由 agent-persona 插件管理：工具不能写入或删除它。需要修改人设时，请让用户在「设置 → Agent 人设」里操作。'
 
-/** Tools whose own arguments name the file they write, so a store path in them is the target. */
-const STORE_PATH_TOOLS = new Set(['write', 'edit', 'multiedit', 'apply_patch', 'create_file', 'delete_file', 'move_file'])
+/**
+ * Tools that can only read. A store path in their arguments is not a write, and refusing it turned the
+ * guard into a trap for honest work: a `grep` across the state dir, or a note quoting the store path, was
+ * denied with a message about writing it. Anything absent from this set is treated as a writing tool.
+ */
+const STORE_READ_ONLY_TOOLS = new Set(['read', 'grep', 'glob', 'ls', 'list_files', 'search_files', 'compress'])
 
-/** Tools that run a command line, where the store only matters next to a write feature. */
+/** Tools that run a command line instead of naming a file in a dedicated option. */
 const STORE_SHELL_TOOLS = new Set(['bash', 'pwsh', 'shell', 'exec', 'terminal', 'run_command'])
+
+/** Command names that write the paths among their arguments, so "the store is an argument" means a write. */
+const STORE_WRITE_COMMANDS = new Set([
+  'rm', 'rmdir', 'rd', 'del', 'erase', 'unlink', 'shred', 'truncate', 'mv', 'move', 'ren', 'rename', 'cp', 'copy',
+  'install', 'dd', 'tee', 'chmod', 'chown', 'chgrp', 'chflags', 'attrib', 'setfacl', 'ln', 'touch', 'mkdir',
+  'sed', 'perl', 'python', 'python3', 'node', 'ruby', 'php',
+  'set-content', 'add-content', 'clear-content', 'out-file', 'remove-item', 'new-item', 'copy-item', 'move-item',
+  'rename-item',
+])
+
+/** First words that mean "the rest of the string is a program", where a snippet can write a path. */
+const STORE_INTERPRETERS = new Set([
+  'bash', 'sh', 'zsh', 'dash', 'pwsh', 'powershell', 'cmd', 'node', 'deno', 'bun', 'python', 'python3', 'perl',
+  'ruby', 'php', 'eval', 'env', 'sudo', 'nohup', 'xargs', 'find',
+])
+
+/** Calls that write a path, for a snippet that already names the store somewhere in the same string. */
+const STORE_WRITE_CALLS = [
+  'writefile', 'writefilesync', 'appendfile', 'appendfilesync', 'open(', 'fopen(', 'creat(', 'unlink(', 'unlinksync(',
+  'rmsync(', 'rename(', 'renamesync(', 'shutil.', 'os.remove', 'os.unlink', 'os.rename', 'fs.write', 'fs.promises.write',
+  'file_put_contents', 'movefile(', 'deletefile(', 'replacefile(',
+]
+
+/** `~/notes` is the same file as `/home/me/notes`; a guard that misses that only protects one spelling. */
+const expandHome = (value) => {
+  if (value === '~') return homedir()
+  if (value.startsWith('~/') || value.startsWith('~\\')) return join(homedir(), value.slice(2))
+  return value
+}
+
+const stripQuotes = (value) => value.replace(/^['"`]|['"`]$/g, '')
+
+/** The files a tool must not write: the store, and the history file this plugin keeps beside it. */
+const protectedTargetsFor = (storePath) => {
+  const targets = [resolve(storePath)]
+  const history = resolve(historyPathFor(storePath))
+  if (!targets.includes(history)) targets.push(history)
+  return targets
+}
+
+/**
+ * Is this one argument the store itself, its history file, or a copy of either? Backups and temp files
+ * (`<store>.bak-…`, `<store>.tmp-…`) count: rewriting one of those is rewriting the store under another name.
+ */
+const protectsPath = (value, bases, targets) => {
+  const trimmed = stripQuotes(String(value ?? '').trim())
+  if (trimmed === '') return false
+  const expanded = expandHome(trimmed)
+  for (const base of bases) {
+    for (const target of targets) {
+      let resolved
+      try {
+        resolved = resolve(base, expanded)
+      } catch {
+        continue
+      }
+      if (resolved === target || resolved.startsWith(`${target}.`)) return true
+    }
+  }
+  return false
+}
+
+/** Split a command line the way a shell would, without executing anything: quoted runs stay one token. */
+const shellTokens = (line) => (line.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map(stripQuotes)
+
+/** The file names a redirect would create. */
+const redirectTargets = (tokens) => {
+  const found = []
+  for (let i = 0; i < tokens.length; i += 1) {
+    const redirect = /^(?:\d*|&)>{1,2}(.*)$/.exec(tokens[i])
+    if (redirect === null) continue
+    const inline = stripQuotes(redirect[1])
+    if (inline !== '') {
+      found.push(inline)
+      continue
+    }
+    const next = tokens[i + 1]
+    if (next !== undefined) found.push(stripQuotes(next))
+  }
+  return found
+}
+
+/** The command name of a line, without a directory or an executable suffix. */
+const commandVerb = (line) => {
+  const first = shellTokens(line.trim())[0] ?? ''
+  return basename(first).toLowerCase().replace(/\.(exe|cmd|bat|ps1|sh|zsh)$/, '')
+}
+
+/** Does this string look like a command rather than prose? Decides whether the shell rules apply to it. */
+const looksLikeCommand = (value) => {
+  const verb = commandVerb(value)
+  return STORE_WRITE_COMMANDS.has(verb) || STORE_INTERPRETERS.has(verb)
+}
+
+/** A string that names the store and also calls something that writes it. */
+const namesWriter = (line) => {
+  const lowered = line.toLowerCase()
+  return STORE_WRITE_CALLS.some((call) => lowered.includes(call))
+}
+
+/** Would running this line write a protected path? */
+const commandWritesStore = (line, bases, targets) => {
+  const tokens = shellTokens(line)
+  if (tokens.length === 0) return false
+  // A redirect is a write no matter which command produced it: copying the store over itself is a write.
+  for (const target of redirectTargets(tokens)) {
+    if (protectsPath(target, bases, targets)) return true
+  }
+  // A writing command with the store among its arguments.
+  if (STORE_WRITE_COMMANDS.has(commandVerb(line)) && tokens.slice(1).some((token) => protectsPath(token, bases, targets))) {
+    return true
+  }
+  // A snippet that names the store next to a writer: an interpreter opening the store for writing.
+  const mentions = targets.some((target) => line.includes(target))
+  if (mentions && namesWriter(line)) return true
+  return false
+}
+
+/** The paths a patch body would touch: a diff names its target after a `*** … File:` marker. */
+const diffTargets = (text) => {
+  if (!text.includes('***')) return []
+  const found = []
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith('***')) continue
+    const colon = trimmed.indexOf(':')
+    if (colon === -1) continue
+    found.push(stripQuotes(trimmed.slice(colon + 1).trim()))
+  }
+  return found
+}
+
+/** Directories a relative path in a tool call may be relative to: the session's cwd, then the process's. */
+const guardBases = (execution, cwd) => {
+  const bases = []
+  const sessionCwd = cwd ?? subjectOf(execution?.agent)?.cwd
+  if (typeof sessionCwd === 'string' && sessionCwd !== '') bases.push(resolve(expandHome(sessionCwd)))
+  const processCwd = resolve(process.cwd())
+  if (!bases.includes(processCwd)) bases.push(processCwd)
+  return bases
+}
+
+/** Shell rules apply to a shell tool, or to any argument that is itself a command line. */
+const scansAsCommand = (name, value) => STORE_SHELL_TOOLS.has(name) || looksLikeCommand(value)
 
 /** Every string nested anywhere in a tool call's arguments, to a bounded depth. */
 const stringsIn = (value, out = [], depth = 0) => {
@@ -270,37 +460,36 @@ const stringsIn = (value, out = [], depth = 0) => {
 
 /**
  * The store is this plugin's own instruction source, so a session running under a persona must not be able
- * to rewrite or delete that persona. This is the monotonic guard for that: it refuses any call whose
- * arguments point at the store, and any command that mentions the store together with a write feature.
+ * to rewrite or delete that persona. This guard refuses any call that would write the store (or the history
+ * file beside it), decided by what the arguments resolve to rather than by which tools happen to exist.
  *
- * Two honest limits, both deliberate: this constrains behaviour rather than enforcing security (a payload
- * without a write marker, a plugin edit, or a manual edit still get through), and the shell test reads the
- * whole command, so a read and a write of the store in one line is refused as a unit.
+ * Honest limits, all deliberate: it constrains behaviour rather than enforcing security (a plugin edit, a
+ * manual edit, or a path assembled at runtime inside a script still get through), it reads only the strings
+ * a tool call carries, and a command line is analysed statically — no shell is run to expand variables.
  */
-export const personaStoreGuardReason = (execution, storePath) => {
+export const personaStoreGuardReason = (execution, storePath, cwd) => {
   const name = String(execution?.name ?? '')
-  const shell = STORE_SHELL_TOOLS.has(name)
-  // A read-only call cannot rewrite the store, so a path that merely appears in its arguments is not a
-  // write. Refusing those (`read`, `grep`, `compress`, ...) turned the guard into a trap for honest work:
-  // any tool whose arguments quoted the store path was denied with a message about writing it.
-  if (!shell && !STORE_PATH_TOOLS.has(name)) return undefined
+  // A read-only call cannot write anything, whatever paths it quotes.
+  if (STORE_READ_ONLY_TOOLS.has(name)) return undefined
   const values = stringsIn(execution?.arguments)
-  const target = resolve(storePath)
-  const base = basename(storePath)
-  const dir = dirname(storePath)
-  const pointsAtStore = values.some((value) => {
-    try {
-      return resolve(value) === target
-    } catch {
-      return false
+  const targets = protectedTargetsFor(storePath)
+  const bases = guardBases(execution, cwd)
+  // A diff body names the file it patches, so the patch string is a path argument in disguise.
+  for (const value of values) {
+    for (const target of diffTargets(value)) {
+      if (protectsPath(target, bases, targets)) return STORE_REFUSAL
     }
-  })
-  const nearStore = values.some((value) => value.includes(base) || value.includes(dir))
-  const writes = values.some((value) => STORE_WRITE_MARKERS.some((marker) => value.includes(marker)))
-  // A tool that names its own target writes exactly what it points at; a shell command has to mention a
-  // write feature before the path inside it counts.
-  if (shell) return nearStore && writes ? STORE_REFUSAL : undefined
-  return pointsAtStore || (nearStore && writes) ? STORE_REFUSAL : undefined
+  }
+  // A command line that would write a protected path, whether it came from a shell tool or a snippet.
+  for (const value of values) {
+    if (scansAsCommand(name, value) && commandWritesStore(value, bases, targets)) return STORE_REFUSAL
+  }
+  // A tool that names its own target writes exactly what it points at — under any name, including tools
+  // this plugin has never heard of.
+  for (const value of values) {
+    if (protectsPath(value, bases, targets)) return STORE_REFUSAL
+  }
+  return undefined
 }
 
 export const sanitizePersona = (text, warn = () => {}) => {
@@ -462,22 +651,40 @@ export const diffStats = (ops) => {
 
 const readHistory = (storePath, warn) => {
   const file = historyPathFor(storePath)
+  let raw
   try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8'))
-    if (parsed && typeof parsed === 'object' && parsed.personas && typeof parsed.personas === 'object') {
-      return { version: HISTORY_VERSION, personas: parsed.personas }
-    }
+    raw = readFileSync(file, 'utf8')
   } catch (error) {
     if (error?.code !== 'ENOENT') warn(`could not read the version history; starting a fresh one`, error)
+    return { version: HISTORY_VERSION, personas: {} }
+  }
+  const parsed = (() => {
+    try {
+      return JSON.parse(raw)
+    } catch (error) {
+      warn(`the version history is not JSON; keeping a copy and starting a fresh one`, error)
+      return undefined
+    }
+  })()
+  // A history file whose `personas` is an array used to be accepted and then silently dropped every write
+  // (JSON.stringify of an array ignores the string keys the recorder adds). Keep a copy, start over.
+  const usable = parsed !== undefined && parsed !== null && typeof parsed === 'object' && parsed.personas !== null
+    && typeof parsed.personas === 'object' && !Array.isArray(parsed.personas)
+  if (usable) return { version: HISTORY_VERSION, personas: parsed.personas }
+  if (parsed !== undefined) warn(`the version history has an unusable shape; keeping a copy and starting a fresh one`)
+  // Whatever was there is about to be replaced: keep the bytes rather than deleting the only record of them.
+  try {
+    const backupPath = `${file}.bak-${backupStamp()}`
+    copyFileSync(file, backupPath)
+    chmodSync(backupPath, 0o600)
+  } catch (error) {
+    if (error?.code !== 'ENOENT') warn(`could not keep a copy of the malformed version history`, error)
   }
   return { version: HISTORY_VERSION, personas: {} }
 }
 
 const persistFile = (file, text, mode) => {
-  mkdirSync(dirname(file), { recursive: true })
-  const tmp = `${file}.tmp-${process.pid}`
-  writeFileSync(tmp, text, { mode })
-  renameSync(tmp, file)
+  writeFileDurable(file, text, mode)
 }
 
 const writeHistory = (storePath, history, warn) => {
@@ -502,6 +709,23 @@ export const versionTextAt = (entryState, index) => {
 }
 
 /**
+ * Does the stored chain still describe the text this persona has right now? The store is a plain JSON file
+ * that people are welcome to edit by hand, so a chain can legitimately drift out of step with it. When it
+ * has, replaying the chain would throw on every later read; the recorder re-bases instead.
+ */
+const chainMatches = (state, beforeText) => {
+  const versions = Array.isArray(state.versions) ? state.versions : []
+  if (versions.length === 0) return state.base === beforeText
+  try {
+    let text = state.base
+    for (const version of versions) text = applyDiff(text, version.ops)
+    return text === beforeText
+  } catch {
+    return false
+  }
+}
+
+/**
  * Record one new version. `before` is the text the persona had, `after` the text it now has.
  * Returns false when the history is off or nothing changed.
  */
@@ -515,6 +739,12 @@ export const recordVersion = (history, personaId, before, after, action, now = n
   if (state === undefined || typeof state.base !== 'string') {
     state = { base: beforeText, baseAt: now, versions: [] }
     history.personas[personaId] = state
+  } else if (!chainMatches(state, beforeText)) {
+    // The stored chain no longer reproduces the current text (hand edit, partial write, older bug). Start a
+    // new baseline from what the persona says now: the past is no longer recoverable, but the future is.
+    state.base = beforeText
+    state.baseAt = now
+    state.versions = []
   }
   state.versions.push({
     at: now,
@@ -537,19 +767,45 @@ export const recordVersion = (history, personaId, before, after, action, now = n
 // ─────────────────────────────────────────────────────────── matching
 
 const regexCache = new Map()
+/** A pattern that cannot match profitably is a hang, not a match: cap the length and the cache. */
+const MAX_REGEX_LENGTH = 500
+const MAX_REGEX_CACHE = 64
+
 const compile = (value) => {
-  if (regexCache.has(value)) return regexCache.get(value)
+  const pattern = String(value ?? '')
+  if (pattern.length > MAX_REGEX_LENGTH) return undefined
+  if (regexCache.has(pattern)) return regexCache.get(pattern)
   let compiled
   try {
-    compiled = new RegExp(value)
+    compiled = new RegExp(pattern)
   } catch {
     compiled = undefined
   }
-  regexCache.set(value, compiled)
+  if (regexCache.size >= MAX_REGEX_CACHE) regexCache.clear()
+  regexCache.set(pattern, compiled)
   return compiled
 }
 
 const subjectFor = (target, subject) => (target.kind === 'sessionId' ? subject.sessionId : subject.cwd)
+
+/** Windows and macOS compare these case-insensitively in practice; a strict compare would just miss. */
+const pathKey = (value) => {
+  const resolved = resolve(value)
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
+/** Same file, however it was spelled (`~`, `..`, trailing slash). */
+const samePath = (left, right) => pathKey(left) === pathKey(right)
+
+/**
+ * Is `path` inside `prefix`? A prefix is a directory, so the match has to end on a separator boundary:
+ * `/home/me/dsh-agent` is not inside `/home/me/dsh`, and a project next door must not pick up a persona.
+ */
+const pathWithin = (path, prefix) => {
+  const key = pathKey(path)
+  const boundary = pathKey(prefix).replace(new RegExp(`${sep === '\\' ? '\\\\' : sep}+$`), '')
+  return key === boundary || key.startsWith(`${boundary}${sep}`)
+}
 
 /**
  * Does one target claim this subject?
@@ -564,14 +820,14 @@ export const matchTarget = (target, subject) => {
   const raw = subjectFor(target, subject)
   if (typeof raw !== 'string' || raw === '') return false
   const isPath = target.kind === 'workspace'
-  // Only `exact` normalises paths (so a trailing slash or `..` still matches);
-  // prefix/contains/regex compare the raw strings the user typed, which is what
-  // makes a plain substring like `project-x` usable on a cwd.
+  // Path targets compare resolved paths (so `~`, `..`, and a trailing slash still match) and stop on a
+  // separator boundary (so a sibling directory with a longer name is not "inside"). Patterns on session ids
+  // keep comparing the raw strings, which is what makes a plain substring like `project-x` usable on a cwd.
   switch (target.match) {
     case 'exact':
-      return isPath ? resolve(raw) === resolve(value) : raw === value
+      return isPath ? samePath(raw, expandHome(value)) : raw === value
     case 'prefix':
-      return raw.startsWith(value)
+      return isPath ? pathWithin(raw, expandHome(value)) : raw.startsWith(value)
     case 'contains':
       return raw.includes(value)
     case 'regex': {
@@ -687,12 +943,16 @@ export const clipMarkdown = (text, maxChars) => {
   const lineBreak = head.lastIndexOf('\n')
   const floor = maxChars * 0.4
   let cut = paragraph > floor ? head.slice(0, paragraph) : lineBreak > floor ? head.slice(0, lineBreak) : head
+  // A cut that lands between the halves of a surrogate pair produces a lone surrogate, which is not valid
+  // UTF-8: the transport replaces it with U+FFFD and the message ships with a visible broken character.
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1)
   const fences = (cut.match(/^```/gm) ?? []).length
   if (fences % 2 === 1) {
     const opening = cut.lastIndexOf('\n```')
     cut = opening === -1 ? '' : cut.slice(0, opening)
   }
   if ((cut.match(/`/g) ?? []).length % 2 === 1) cut = cut.slice(0, cut.lastIndexOf('`'))
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1)
   return cut.trimEnd()
 }
 
@@ -1245,7 +1505,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return this.runtime.view()
     } catch (error) {
-      return { error: `listPersonas failed: ${String((error && error.stack) || error)}` }
+      return { error: `listPersonas failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1254,7 +1514,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return this.runtime.savePrefs(input)
     } catch (error) {
-      return { error: `savePrefs failed: ${String((error && error.stack) || error)}` }
+      return { error: `savePrefs failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1263,7 +1523,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return this.runtime.save(input)
     } catch (error) {
-      return { error: `savePersona failed: ${String((error && error.stack) || error)}` }
+      return { error: `savePersona failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1272,7 +1532,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return this.runtime.listVersions(input)
     } catch (error) {
-      return { error: `listVersions failed: ${String((error && error.stack) || error)}` }
+      return { error: `listVersions failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1281,7 +1541,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return this.runtime.versionDiff(input)
     } catch (error) {
-      return { error: `versionDiff failed: ${String((error && error.stack) || error)}` }
+      return { error: `versionDiff failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1290,7 +1550,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return this.runtime.restoreVersion(input)
     } catch (error) {
-      return { error: `restoreVersion failed: ${String((error && error.stack) || error)}` }
+      return { error: `restoreVersion failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1299,7 +1559,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return this.runtime.remove(input)
     } catch (error) {
-      return { error: `deletePersona failed: ${String((error && error.stack) || error)}` }
+      return { error: `deletePersona failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1308,7 +1568,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return this.runtime.move(input)
     } catch (error) {
-      return { error: `movePersona failed: ${String((error && error.stack) || error)}` }
+      return { error: `movePersona failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1317,7 +1577,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return this.runtime.duplicate(input)
     } catch (error) {
-      return { error: `duplicatePersona failed: ${String((error && error.stack) || error)}` }
+      return { error: `duplicatePersona failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1327,7 +1587,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return await this.runtime.sessionPrompt(input)
     } catch (error) {
-      return { error: `sessionPrompt failed: ${String((error && error.stack) || error)}` }
+      return { error: `sessionPrompt failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1335,7 +1595,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return await this.runtime.history(input)
     } catch (error) {
-      return { error: `sessionHistory failed: ${String((error && error.stack) || error)}` }
+      return { error: `sessionHistory failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1343,7 +1603,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return this.runtime.reorder(input)
     } catch (error) {
-      return { error: `reorderPersona failed: ${String((error && error.stack) || error)}` }
+      return { error: `reorderPersona failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1351,7 +1611,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return await this.runtime.targets()
     } catch (error) {
-      return { error: `listTargets failed: ${String((error && error.stack) || error)}` }
+      return { error: `listTargets failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1360,7 +1620,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return await this.runtime.tune(input)
     } catch (error) {
-      return { error: `tunePersona failed: ${String((error && error.stack) || error)}` }
+      return { error: `tunePersona failed: ${errorMessage(error)}` }
     }
   }
 
@@ -1369,7 +1629,7 @@ class WorkspacePersonaService extends TypertRemoteService {
     try {
       return await this.runtime.models()
     } catch (error) {
-      return { error: `listModels failed: ${String((error && error.stack) || error)}`, models: [] }
+      return { error: `listModels failed: ${errorMessage(error)}`, models: [] }
     }
   }
 }
@@ -1445,9 +1705,10 @@ export function apply(ctx, config = {}) {
   const currentStore = () => (storeStamp === stampOf() ? store : reload())
 
   /**
-   * Every write goes through here. While the in-memory store is the result of a reset, the file on disk is
-   * still the one that could not be read, so it is copied aside before being replaced; a copy that fails
-   * aborts the write rather than destroying content nothing preserved.
+   * Every write goes through here, and it is the only place the in-memory store changes: callers hand it a
+   * complete next state and it persists that state before adopting it. Keeping the assignment here means a
+   * failed write leaves memory exactly as it was — the old code mutated the live object first, so a thrown
+   * `persist` left the process believing it had saved something that never reached disk.
    */
   const commit = (next) => {
     if (reset !== undefined) {
@@ -1456,7 +1717,14 @@ export function apply(ctx, config = {}) {
       reset = undefined
     }
     persist(next, storePath)
+    store = next
+    // Adopt the stamp of what we just wrote: without this, the next read sees a changed file and reloads,
+    // throwing away the state this commit just installed (and the backup note that goes with it).
+    storeStamp = stampOf()
   }
+
+  /** A store a caller may mutate freely; committing it is what makes the change real. */
+  const editableStore = () => JSON.parse(JSON.stringify(currentStore()))
 
   const storeHealth = () => {
     if (reset !== undefined) return { status: 'reset', path: storePath, reason: reset.reason, willBackup: true }
@@ -1568,7 +1836,7 @@ export function apply(ctx, config = {}) {
       const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
       return {
         version: typeof manifest?.version === 'string' ? manifest.version : '',
-        origin: new URL(import.meta.url).pathname.includes('node_modules') ? 'npm' : 'local',
+        origin: fileURLToPath(import.meta.url).split(sep).includes('node_modules') ? 'npm' : 'local',
       }
     } catch {
       return { version: '', origin: 'unknown' }
@@ -1588,7 +1856,7 @@ export function apply(ctx, config = {}) {
     return {
       version: STORE_VERSION,
       storePath,
-      prefs: normalizePrefs(reload().prefs),
+      prefs: normalizePrefs(current.prefs),
       storeHealth: storeHealth(),
       pluginVersion: PLUGIN_INFO.version,
       installOrigin: PLUGIN_INFO.origin,
@@ -1608,19 +1876,30 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  const normalizeInput = (input) => {
-    const text = typeof input?.text === 'string' ? input.text : ''
+  /**
+   * Normalize one save payload. Every field is "only when the payload names it": a request that updates the
+   * name must not clear the text or re-enable a disabled persona, which is what defaulting missing fields
+   * to empty values used to do. `existing` supplies the values for fields the payload leaves out; a create
+   * request (no existing persona) falls back to the same defaults the UI shows.
+   */
+  const normalizeInput = (input, existing) => {
+    const mentions = (field) => input !== null && typeof input === 'object' && field in input
+    const current = existing ?? {}
+    const text = mentions('text') ? (typeof input.text === 'string' ? input.text : '') : (typeof current.text === 'string' ? current.text : '')
     if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) throw new Error(`人设文本过长（上限 ${MAX_TEXT_BYTES} 字节）`)
-    const targets = (Array.isArray(input?.targets) ? input.targets : [])
+    const rawTargets = mentions('targets') ? (Array.isArray(input.targets) ? input.targets : []) : (Array.isArray(current.targets) ? current.targets : [])
+    const targets = rawTargets
       .map(normalizeTarget)
       .filter((target) => target.value.trim() !== '')
+    const rawName = mentions('name') ? input.name : current.name
+    const rawMode = mentions('mode') ? input.mode : current.mode
     return {
       id: typeof input?.id === 'string' && input.id !== '' ? input.id : undefined,
-      name: typeof input?.name === 'string' && input.name.trim() !== '' ? input.name.trim() : '未命名人设',
-      enabled: input?.enabled !== false,
+      name: typeof rawName === 'string' && rawName.trim() !== '' ? rawName.trim() : '未命名人设',
+      enabled: mentions('enabled') ? input.enabled !== false : current.enabled !== false,
       // 默认人设：没有位置命中时使用它（优先级最低的保底），同一时刻只允许一条。
-      fallback: input?.fallback === true,
-      mode: input?.mode === 'replace' ? 'replace' : 'append',
+      fallback: mentions('fallback') ? input.fallback === true : current.fallback === true,
+      mode: rawMode === 'replace' ? 'replace' : 'append',
       text,
       targets,
     }
@@ -1633,6 +1912,18 @@ export function apply(ctx, config = {}) {
     const history = readHistory(storePath, warn)
     if (!recordVersion(history, personaId, before, after, action)) return
     writeHistory(storePath, history, warn)
+  }
+
+  /** Forget a deleted persona's versions; the history of something that no longer exists is just growth. */
+  const dropHistory = (personaId) => {
+    try {
+      const history = readHistory(storePath, warn)
+      if (!(personaId in history.personas)) return
+      delete history.personas[personaId]
+      writeHistory(storePath, history, warn)
+    } catch (error) {
+      warn(`could not drop the version history of a deleted persona`, error)
+    }
   }
 
   const runtime = {
@@ -1690,7 +1981,7 @@ export function apply(ctx, config = {}) {
     },
     /** Put a stored version back as the persona text; the restore itself is recorded as a new version. */
     restoreVersion(input) {
-      const current = reload()
+      const current = editableStore()
       const id = typeof input?.id === 'string' ? input.id : ''
       const persona = current.personas.find((item) => item.id === id)
       if (persona === undefined) throw new Error('人设不存在（可能已被删除）')
@@ -1707,15 +1998,15 @@ export function apply(ctx, config = {}) {
     },
     /** Merge preferences into the store; every field is optional so one switch can be saved. */
     savePrefs(input) {
-      const current = reload()
+      const current = editableStore()
       current.prefs = normalizePrefs({ ...current.prefs, ...(input ?? {}) })
       commit(current)
       info(`preferences saved: ${JSON.stringify(current.prefs)}`)
       return view()
     },
     save(input) {
-      const next = normalizeInput(input)
-      const current = reload()
+      const current = editableStore()
+      const next = normalizeInput(input, current)
       const beforeText = next.id === undefined ? '' : (current.personas.find((item) => item.id === next.id)?.text ?? '')
       const created = next.id === undefined
       let persona
@@ -1726,12 +2017,11 @@ export function apply(ctx, config = {}) {
       } else {
         persona = current.personas.find((item) => item.id === next.id)
         if (persona === undefined) throw new Error('人设不存在（可能已被删除）')
+        // `normalizeInput` already filled every field the payload left out from the stored persona, so this
+        // assignment cannot erase a field the caller never mentioned.
         persona.name = next.name
         persona.enabled = next.enabled
-        // A payload that omits the key keeps whatever is stored: a partial update must not silently
-        // clear a flag it never mentioned (that is how the default persona kept turning itself off).
-        const mentionsFallback = input !== null && typeof input === 'object' && 'fallback' in input
-        persona.fallback = mentionsFallback ? next.fallback : persona.fallback
+        persona.fallback = next.fallback
         persona.text = next.text
         persona.mode = next.mode
         persona.targets = next.targets
@@ -1762,17 +2052,20 @@ export function apply(ctx, config = {}) {
       return result
     },
     remove(input) {
-      const current = reload()
+      const current = editableStore()
       const id = typeof input?.id === 'string' ? input.id : ''
       const before = current.personas.length
       current.personas = current.personas.filter((persona) => persona.id !== id)
       if (current.personas.length === before) throw new Error('人设不存在（可能已被删除）')
       commit(current)
+      // The versions belong to a persona that no longer exists; keeping them grows the history file forever
+      // and leaves every replay of a deleted id in the store's own file.
+      dropHistory(id)
       info(`deleted persona ${id}`)
       return view()
     },
     move(input) {
-      const current = reload()
+      const current = editableStore()
       const id = typeof input?.id === 'string' ? input.id : ''
       const delta = input?.delta === 1 ? 1 : input?.delta === -1 ? -1 : 0
       const from = current.personas.findIndex((persona) => persona.id === id)
@@ -1786,7 +2079,7 @@ export function apply(ctx, config = {}) {
       return view()
     },
     duplicate(input) {
-      const current = reload()
+      const current = editableStore()
       const id = typeof input?.id === 'string' ? input.id : ''
       const from = current.personas.findIndex((persona) => persona.id === id)
       if (from < 0) throw new Error('人设不存在（可能已被删除）')
@@ -1796,6 +2089,10 @@ export function apply(ctx, config = {}) {
         id: newId(),
         name: `${source.name} 副本`,
         enabled: false,
+        // A copy is not the default persona, but it is the same kind of persona: a `replace` copy that
+        // degraded to `append` would quietly change what the copy means once someone enables it.
+        fallback: false,
+        mode: source.mode === 'replace' ? 'replace' : 'append',
         text: source.text,
         targets: clone(source.targets),
       })
@@ -1807,7 +2104,7 @@ export function apply(ctx, config = {}) {
     reorder(input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       const toIndex = Number.isFinite(input?.toIndex) ? Math.trunc(input.toIndex) : -1
-      const current = reload()
+      const current = editableStore()
       if (!current.personas.some((persona) => persona.id === id)) throw new Error('人设不存在（可能已被删除）')
       if (reorderPersonas(current, id, toIndex)) {
         commit(current)
@@ -1913,10 +2210,11 @@ export function apply(ctx, config = {}) {
   }
 
   try {
-    mkdirSync(dirname(HEARTBEAT_FILE), { recursive: true })
-    writeFileSync(HEARTBEAT_FILE, `${JSON.stringify({
+    // Written through the same durable path as the store: a reader that catches this file mid-write used to
+    // see half a JSON document, and that is indistinguishable from a corrupt heartbeat.
+    writeFileDurable(HEARTBEAT_FILE, `${JSON.stringify({
       loadedAt: new Date().toISOString(),
-      loadedModule: new URL(import.meta.url).pathname,
+      loadedModule: fileURLToPath(import.meta.url),
       pluginVersion: PLUGIN_INFO.version,
       installOrigin: PLUGIN_INFO.origin,
       storePath,
@@ -1924,7 +2222,7 @@ export function apply(ctx, config = {}) {
       personas: store.personas.length,
       sectionName: SECTION_NAME,
       sectionOrder: order,
-    }, null, 2)}\n`, { mode: 0o600 })
+    }, null, 2)}\n`, 0o600)
   } catch (error) {
     warn('could not write the load heartbeat', error)
   }

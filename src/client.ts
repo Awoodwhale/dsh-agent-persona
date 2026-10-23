@@ -323,7 +323,9 @@ const readPrefs = () => {
       report({ prefs: next, status: prefStatus(patch) })
       syncSidebarModule()
       if (api === undefined || typeof api.savePrefs !== 'function') return next
-      void api.savePrefs(next).then((result) => {
+      // Send only what changed. The host merges into what it has, so sending the whole object made a second
+      // tab's older copy overwrite this tab's switch (and the host's own defaults) on every flip.
+      void api.savePrefs(patch).then((result) => {
         const view = unwrap === undefined ? result : unwrap(result)
         const stored = view !== undefined && view !== null && view.prefs !== undefined && view.prefs !== null ? writePrefs(view.prefs) : undefined
         report(stored === undefined ? { view } : { prefs: { ...next, ...stored }, view })
@@ -577,6 +579,10 @@ const readPrefs = () => {
 .wsp-switch input:checked + .wsp-switch-track { background: var(--wsp-success); }
 .wsp-switch input:checked + .wsp-switch-track::after { transform: translateX(12px); }
 .wsp-switch input:focus-visible + .wsp-switch-track { outline: 2px solid var(--wsp-accent); outline-offset: 2px; }
+.wsp-sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 .wsp-switch-text { font-size: 11.5px; color: var(--wsp-muted); }
 
 /* ── editor / preview ──────────────────────────────────────────────────── */
@@ -837,8 +843,14 @@ const readPrefs = () => {
 `
 
     let styleElement
+    /**
+     * Create the stylesheet once per page. The cached node has to be forgotten when its owner removes it:
+     * a plugin re-applied after a reload kept handing out the detached element, so the page rendered
+     * unstyled with the <style> sitting in the DOM of nothing.
+     */
     const injectStyles = () => {
-      if (styleElement !== undefined) return styleElement
+      if (styleElement !== undefined && styleElement.isConnected) return styleElement
+      if (styleElement !== undefined) styleElement.remove()
       styleElement = document.createElement('style')
       styleElement.setAttribute('data-dsh-agent-persona', '')
       styleElement.textContent = CSS
@@ -1299,18 +1311,27 @@ const since = (timestamp) => {
      * tooltip on hover or keyboard focus. Without a hint the label doubles as the native title, because a
      * tooltip that only repeats the label explains nothing.
      */
+    let switchId = 0
     const Switch = ({ checked, disabled, label, hint, onChange }) => {
+      const descriptionId = React.useMemo(() => `wsp-switch-hint-${(switchId += 1)}`, [])
       const control = h('label', { className: 'wsp-switch', title: hint === undefined ? label : undefined }, [
         h('input', {
           key: 'i',
           type: 'checkbox',
+          // Role and state, not just appearance: a checkbox announced as "checkbox" next to a track that
+          // says "switch" is two different controls to a screen reader. The hint belongs in the
+          // description, not in the name — a name that reads a whole sentence is unusable in a list.
+          role: 'switch',
+          'aria-checked': checked === true,
           checked,
           disabled,
-          'aria-label': hint === undefined ? label : `${label}：${hint}`,
+          'aria-label': label,
+          'aria-describedby': hint === undefined ? undefined : descriptionId,
           onChange: (event) => onChange(event.target.checked),
         }),
         h('span', { key: 't', className: 'wsp-switch-track' }),
         h('span', { key: 'l', className: 'wsp-switch-text' }, label),
+        hint === undefined ? null : h('span', { key: 'd', id: descriptionId, className: 'wsp-sr-only' }, hint),
       ])
       return hint === undefined ? control : h(Tooltip, { label: hint, side: 'top', delayMs: 260, maxWidth: 320 }, control)
     }
@@ -1361,6 +1382,13 @@ const since = (timestamp) => {
         this.importHighlightRef = React.createRef()
         this.importTimer = undefined
         this.statusSeq = 0
+        // Sequence tokens: "this reply still belongs to the newest request". Both exist for the same reason —
+        // a slow answer to an older question must not overwrite the state a newer one installed.
+        this.saveSeq = 0
+        this.versionSeq = 0
+        // One stable callback for the toast: a fresh arrow on every render re-armed the host toast's
+        // timer on every parent re-render, which is how a three-second toast stayed up for minutes.
+        this.clearStatus = () => this.onChange({ status: '' })
         this.onChange = (patch) => {
           if (!this.mounted) return
           if (patch !== null && typeof patch === 'object' && 'status' in patch) {
@@ -1375,6 +1403,7 @@ const since = (timestamp) => {
           const root = this.rootRef.current
           if (root === null || !root.contains(event.target)) return
           event.preventDefault()
+          if (this.state.busy === 'save') return
           void this.save()
         }
       }
@@ -1388,6 +1417,13 @@ const since = (timestamp) => {
       }
 
       componentWillUnmount() {
+        // A pending debounce means the last edit exists only in this component. Fire it before the panel
+        // goes away: the request is already on its way, and dropping it loses what the user just typed.
+        if (this.autosaveTimer !== undefined && this.isDirty()) {
+          clearTimeout(this.autosaveTimer)
+          this.autosaveTimer = undefined
+          void this.save()
+        }
         clearTimeout(this.autosaveTimer)
         clearTimeout(this.importTimer)
         this.mounted = false
@@ -1446,12 +1482,15 @@ const since = (timestamp) => {
         this.onChange({ busy: 'load', error: '' })
         try {
           const view = this.unwrap(await api.listPersonas())
-          if (view?.prefs !== undefined && view?.prefs !== null) writePrefs(view.prefs)
+          // The store is the truth, not this tab's localStorage mirror: adopting it here is what makes an
+          // instance that just moved the store path, or another tab's switch, show up in the switch row.
+          const stored = view?.prefs !== undefined && view?.prefs !== null ? writePrefs(view.prefs) : undefined
           const wanted = keepOpen === true ? this.state.openId : undefined
           const persona = wanted === undefined ? undefined : (view.personas || []).find((item) => item.id === wanted)
           this.onChange({
             view,
             busy: '',
+            ...(stored === undefined ? {} : { prefs: { ...this.state.prefs, ...stored } }),
             openId: persona === undefined ? undefined : wanted,
             draft: persona === undefined ? undefined : this.draftFrom(persona),
           })
@@ -1571,11 +1610,16 @@ const since = (timestamp) => {
         const api = this.api()
         const versions = this.state.versions
         if (api === undefined || versions === undefined || index < 0) return
+        const seq = (this.versionSeq += 1)
         this.onChange({ versionsBusy: 'diff', versionIndex: index, versionsError: '' })
         try {
           const diff = this.unwrap(await api.versionDiff({ id: versions.id, index }))
+          // Rows are clickable while a diff is loading: without this token two clicks in a row can show the
+          // first answer under the second row's highlight.
+          if (seq !== this.versionSeq) return
           this.onChange({ versionsBusy: '', versionDiff: diff })
         } catch (error) {
+          if (seq !== this.versionSeq) return
           this.onChange({ versionsBusy: '', versionDiff: undefined, versionsError: String((error && error.message) || error) })
         }
       }
@@ -1585,6 +1629,11 @@ const since = (timestamp) => {
         const api = this.api()
         const versions = this.state.versions
         if (api === undefined || versions === undefined) return
+        // Restoring replaces the text: a debounced autosave still in the air would save the text the user
+        // is about to discard, and an in-flight save would land its draft over the restored one.
+        clearTimeout(this.autosaveTimer)
+        this.autosaveTimer = undefined
+        this.saveSeq += 1
         this.onChange({ versionsBusy: 'restore', versionsError: '' })
         try {
           const view = this.unwrap(await api.restoreVersion({ id: versions.id, index }))
@@ -1805,7 +1854,8 @@ const since = (timestamp) => {
         clearTimeout(this.autosaveTimer)
         this.autosaveTimer = setTimeout(() => {
           this.autosaveTimer = undefined
-          this.onChange({ status: '正在自动保存…' })
+          // One toast per save, at the end. Announcing "saving" first meant a user who kept typing saw a
+          // pair of toasts every 1.2 seconds, half of them about a save that had already been superseded.
           void this.save()
         }, 1200)
       }
@@ -2007,7 +2057,11 @@ const since = (timestamp) => {
             status: `已导入 ${transfer.preview.length} 条人设（全部停用）${replace ? '，并替换了原有列表' : ''}${dropped > 0 ? `；有 ${dropped} 条规则没通过校验被略过` : ''}`,
           })
         } catch (error) {
+          // A replace-import deletes before it writes, so a failure halfway leaves the store in a state this
+          // component never saw. Re-read it: showing the pre-import list would offer saves for personas that
+          // no longer exist and hide the ones that do.
           this.onChange({ transfer: { ...transfer, busy: false, error: `导入失败：${String((error && error.message) || error)}` } })
+          await this.load(true)
         }
       }
 
@@ -2030,6 +2084,8 @@ const since = (timestamp) => {
         const api = this.api()
         const draft = this.state.draft
         if (api === undefined || draft === undefined) return
+        if (this.state.busy === 'save') return
+        const seq = (this.saveSeq += 1)
         this.onChange({ busy: 'save', error: '', status: '' })
         try {
           const view = this.unwrap(await api.savePersona({
@@ -2041,14 +2097,17 @@ const since = (timestamp) => {
             text: draft.text,
             targets: draft.targets,
           }))
+          // A save that has been overtaken (a restore, or a second save) must not write its older view
+          // over the state a newer request already installed.
+          if (seq !== this.saveSeq) return
           const persona = (view.personas || []).find((item) => item.id === draft.id)
-          this.onChange({
-            view,
-            busy: '',
-            draft: persona === undefined ? undefined : this.draftFrom(persona),
-            status: view.notice ?? '已保存，下一条消息就会用上',
-          })
+          const latest = this.state.draft
+          // Adopt the server's copy only while the draft is still the one that was sent. If the user typed
+          // during the round trip, their draft object is a new one — replacing it would delete those keys.
+          const draftAfter = latest === draft && persona !== undefined ? this.draftFrom(persona) : latest
+          this.onChange({ view, busy: '', draft: draftAfter, status: view.notice ?? '已保存，下一条消息就会用上' })
         } catch (error) {
+          if (seq !== this.saveSeq) return
           this.onChange({ busy: '', error: String((error && error.message) || error) })
         }
       }
@@ -2731,7 +2790,6 @@ const since = (timestamp) => {
           }, '清空'),
         ])
 
-        const hiddenNote = null
 
         const conflictNotice = conflicts.size === 0 ? null : h('div', { className: 'wsp-conflict-notice', key: 'conflicts' }, [
           h(IconWarningOutline16, { key: 'i' }),
@@ -2798,7 +2856,7 @@ const since = (timestamp) => {
               key: `st-${String(state.statusSeq)}`,
               text: state.status,
               icon: h(IconCheckOutline14, {}),
-              onDone: () => this.onChange({ status: '' }),
+              onDone: this.clearStatus,
             })
 
         const history = state.history
@@ -2915,7 +2973,7 @@ const since = (timestamp) => {
             key: 'guard',
             checked: prefs.guard !== false,
             label: '禁止模型改写人设文件',
-            hint: '打开后，模型的文件与命令工具不能写入或删除人设存储（personas.json 及其备份）；读取不受影响。关掉后模型就能直接改它。这是行为层面的限制，不是安全边界：本机上的其它程序仍可修改。',
+            hint: '按能力判定：任何会写入或删除人设存储（含它的历史文件与备份副本）的工具调用都会被拒，不看工具叫什么名字；读取、搜索、把路径写进笔记都不受影响。这是行为层面的限制，不是安全边界：本机上的其它程序仍可修改。',
             onChange: (next) => this.setPref({ guard: next }),
           }),
           h(Switch, {
@@ -3134,7 +3192,7 @@ const since = (timestamp) => {
             ]),
         ]))
 
-        return h('div', rootProps, [header, healthNote, prefsRow, transferRow, searchRow, hiddenNote, conflictNotice, h('div', { className: 'wsp-cards', key: 'cards' }, cards), status, historyModal, confirmModal, versionsModal, importModal])
+        return h('div', rootProps, [header, healthNote, prefsRow, transferRow, searchRow, conflictNotice, h('div', { className: 'wsp-cards', key: 'cards' }, cards), status, historyModal, confirmModal, versionsModal, importModal])
       }
     }
 
@@ -3144,7 +3202,10 @@ const since = (timestamp) => {
 
     function apply(ctx) {
       const style = injectStyles()
-      ctx.effect(() => () => style.remove(), `${NS}: styles`)
+      ctx.effect(() => () => {
+        style.remove()
+        if (styleElement === style) styleElement = undefined
+      }, `${NS}: styles`)
 
       // Register SYNCHRONOUSLY so the entry is live for the renderer's first pass.
       const prefs = readPrefs()

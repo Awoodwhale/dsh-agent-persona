@@ -194,8 +194,9 @@ error.
 
 ```
 ~/.dsh/dsh-agent-persona/
-├── personas.json   # personas + preferences, mode 600, written atomically
-└── state.json      # load heartbeat, rewritten on every load
+├── personas.json          # personas + preferences, mode 600, written atomically
+├── personas.history.json  # version history (only while the switch is on)
+└── state.json             # load heartbeat, rewritten on every load
 ```
 
 The body may use `{{model}}` and `{{cwd}}`; other `{{...}}` are de-braced (an unregistered variable would make the
@@ -229,18 +230,22 @@ Agent 人设 page (`保存在 …`), so it is never a mystery which file you are
 
 - **A persona is a behavioural constraint, not a security boundary.** It shapes what the model says; it does not
   stop tools.
-- Tamper protection is a **behaviour** measure: the plugin registers a global `tools.guard` that refuses writes to
-  `personas.json` (file tools by the paths in their arguments; shell commands by mentioning the store together
-  with a write feature). On a `danger-full-access` machine it can still be bypassed — edit the plugin, edit the
-  profile patch, or craft a payload without a write marker. Harder options live at the machine level:
-  `chflags uchg <store>` (run `chflags nouchg` before editing it yourself), or a restricted sandbox with the store
-  owned by another user.
-- That shell test reads the **whole command**: a `md5 <store>` and a `chmod <store>` on one line are refused as a
-  unit (deliberate).
+- Tamper protection is decided by **capability, not by tool name**: a global `tools.guard` asks whether this call
+  would write a protected file — the paths in its arguments (resolved through `~` and relative paths), redirect
+  targets and writing commands in a shell line (delete, move, in-place edit, interpreter `-c`), and the targets
+  named by `*** Update File:` markers in a patch body. Protected: `personas.json`, its history file, and their
+  backup and temp copies.
+- It is still a behavioural measure, and the bypass surface is stated plainly: on `danger-full-access` you can
+  edit the plugin or the profile patch; a path assembled at runtime inside a script, `$VAR` expansion, or an
+  alias/function wrapper is invisible to a static read. Harder options live at the machine level: `chflags uchg
+  <store>` (run `chflags nouchg` before editing it yourself), or a restricted sandbox with the store owned by
+  another user.
+- The decision is per **tool call**: a line that both reads and writes has its writing half refused; the reading
+  half is not implicated.
 - Only the **first** match is used — no concatenation. Matching is a linear scan; dozens of rules are fine,
   hundreds want a redesign.
 - Install once per profile: two rows with the same id in one process make the composition fail.
-- **Test boundary**: the suite is unit tests plus source audits (200 host assertions, 165 client assertions, and a
+- **Test boundary**: the suite is unit tests plus source audits (236 host assertions, 187 client assertions, and a
   generated-artifact drift check; the numbers are counted by the suites themselves, so they cannot fall behind
   the files). It does not drive a browser — UI behaviour is checked by hand today.
 
@@ -261,7 +266,7 @@ docs/              architecture, development notes, design decisions
 npm install
 npm run build        # generate:remote → tsc → esbuild (writes lib/)
 npm run typecheck    # both tsconfigs, no errors
-npm test             # 200 + 165 assertions plus the generated-artifact drift check
+npm test             # 236 + 187 assertions plus the generated-artifact drift check
 dsh --profile web --dump-config | grep -c 'id: agent-persona'   # composition self-check, expects 1
 ```
 
