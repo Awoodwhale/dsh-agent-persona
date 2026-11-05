@@ -179,6 +179,12 @@ browser keeps only a mirror, used to decide at load whether to register the view
 Replace only touches what the deployment itself wrote. If an Agent preset shadows that section in its own scope,
 the plugin leaves it alone — someone else's identity wins.
 
+The exception is a preset that owns the **whole prompt**: when its persona section declares `complete: true`, DSH
+treats that one section as the complete system prompt and drops every other section at the end of assembly. The
+plugin then has no section of its own to write, so it folds the persona into that section instead — appended
+after it for **Append**, replacing it entirely for **Replace**. "Someone else's identity wins" does not apply
+there: that section is the only slot the prompt has.
+
 ## How matching works
 
 On every assembly:

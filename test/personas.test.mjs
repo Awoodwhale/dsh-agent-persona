@@ -36,7 +36,7 @@ const mod = await import(new URL('../lib/index.js', import.meta.url).href).catch
   throw error
 })
 const { collectLastSystemPrompt, sessionPromptFrom } = mod
-const { applyPersonaMode, backupStamp, backupStoreFile, clipMarkdown, collectSessionHistory, historyOptions, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
+const { applyCompletePersona, applyPersonaMode, backupStamp, backupStoreFile, bridgeCompletePrompt, clipMarkdown, collectSessionHistory, historyOptions, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
 
 const WS = '/tmp/ws/web-app'
 const OTHER = '/tmp/ws/docs'
@@ -364,6 +364,35 @@ assert.equal(applyPersonaMode(assembly, { mode: 'replace', deploymentPrefix: 'A 
 assert.equal(applyPersonaMode(assembly, { mode: 'replace', deploymentPrefix: undefined }).sections[0].text, '', 'an unreadable deployment persona still honours the request')
 assert.equal(applyPersonaMode({ sections: [{ name: 'x', text: 'y' }] }, { mode: 'replace', deploymentPrefix: '' }).sections[0].text, 'y')
 assert.equal(applyPersonaMode(undefined, { mode: 'replace', deploymentPrefix: '' }), undefined)
+
+// ── a preset that owns the whole prompt (`complete: true`) still gets the persona
+const completePrompt = (text) => ({ sections: [{ name: 'deployment:persona-prefix', text }], contexts: [], tools: [], variables: {} })
+assert.equal(applyCompletePersona(completePrompt('You are a helpful assistant.'), { text: 'MY PERSONA', mode: 'append' }).sections[0].text, `You are a helpful assistant.
+
+MY PERSONA`, 'append keeps the complete prompt and puts the persona after it')
+assert.equal(applyCompletePersona(completePrompt('You are a helpful assistant.'), { text: 'MY PERSONA', mode: 'replace' }).sections[0].text, 'MY PERSONA', 'replace takes the complete prompt over')
+assert.equal(applyCompletePersona({ sections: [{ name: 'agent-persona', text: 'MY PERSONA' }] }, { text: 'MY PERSONA', mode: 'append' }).sections.length, 1, 'a prompt that already carries the persona is not folded twice')
+assert.equal(applyCompletePersona(assembly, { text: 'MY PERSONA', mode: 'append' }), assembly, 'more than one section means the waterfall already placed the persona')
+assert.equal(applyCompletePersona(completePrompt('BASE'), { text: '   ', mode: 'append' }).sections[0].text, 'BASE', 'an empty persona changes nothing')
+assert.equal(applyCompletePersona(completePrompt(''), { text: 'MY PERSONA', mode: 'append' }).sections[0].text, 'MY PERSONA', 'an empty complete prompt just receives the persona')
+assert.equal(applyCompletePersona(undefined, { text: 'MY PERSONA', mode: 'append' }), undefined, 'no assembly, nothing to fold')
+assert.equal(completePrompt('BASE').sections[0].text, 'BASE', 'the folded assembly does not mutate its input')
+
+// the bridge reaches the collapsed prompt and leaves no wrapper behind
+const registry = { assemble: async () => completePrompt('BASE'), other: 1 }
+const restore = bridgeCompletePrompt(registry, () => ({ text: 'MY PERSONA', mode: 'append' }))
+assert.equal((await registry.assemble({})).sections[0].text, `BASE
+
+MY PERSONA`, 'assemble() is wrapped')
+restore()
+assert.equal((await registry.assemble({})).sections[0].text, 'BASE', 'disposal restores the original assemble')
+const noPersona = { assemble: async () => completePrompt('BASE') }
+bridgeCompletePrompt(noPersona, () => undefined)
+assert.equal((await noPersona.assemble({})).sections[0].text, 'BASE', 'an unclaimed assembly is handed back untouched')
+const throwing = { assemble: async () => completePrompt('BASE') }
+bridgeCompletePrompt(throwing, () => { throw new Error('boom') }, () => {})
+assert.equal((await throwing.assemble({})).sections[0].text, 'BASE', 'a failing resolver leaves the prompt alone')
+assert.equal(bridgeCompletePrompt(undefined, () => undefined)(), undefined, 'a deployment without the service disposes cleanly')
 
 // ── one workspace/session belongs to one persona: a new claim takes the row over
 const store = { personas: [

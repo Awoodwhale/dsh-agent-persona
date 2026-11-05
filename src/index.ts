@@ -1220,6 +1220,62 @@ export const applyPersonaMode = (assembly, { mode, deploymentPrefix }) => {
   return changed ? { ...assembly, sections: next } : assembly
 }
 
+/**
+ * Fold a persona into a prompt that one `complete: true` section owns.
+ *
+ * An agent preset may declare its own persona with `complete: true`; the registry then hands back that single
+ * section as the whole system prompt, and it does so *after* the `system-prompt/assemble` waterfall — so no
+ * listener can add a section of its own, and this plugin's section is discarded before it ever renders. The
+ * only place a persona can still live is inside that section.
+ * @param assembly - an assembled prompt.
+ * @param persona - `{ text, mode }` of the persona that claims this assembly, or `undefined`.
+ * @returns the assembly with the persona folded in, or the input when nothing applies.
+ */
+export const applyCompletePersona = (assembly, persona) => {
+  const text = typeof persona?.text === 'string' ? persona.text.trim() : ''
+  if (text === '') return assembly
+  const sections = assembly?.sections
+  if (!Array.isArray(sections) || sections.length !== 1) return assembly
+  const [only] = sections
+  // Our own section surviving means this is a normal prompt: the waterfall already placed the persona, and
+  // folding it in again would print it twice.
+  if (only?.name === SECTION_NAME) return assembly
+  const current = typeof only?.text === 'string' ? only.text : ''
+  // `replace` takes the prompt over, which is the honest reading of "replace" when the preset owns every word;
+  // `append` keeps that prompt and puts the persona right after it, where section order 1 would have been.
+  const next = persona.mode === 'replace' ? text : current.trim() === '' ? text : `${current}\n\n${text}`
+  return next === current ? assembly : { ...assembly, sections: [{ ...only, text: next }] }
+}
+
+/**
+ * Reach the prompts a `complete: true` section owns.
+ *
+ * `assemble()` is wrapped instead of listening to the waterfall because the registry collapses the section
+ * list *after* dispatching it: the waterfall's sections are overwritten by the complete one. Disposal restores
+ * the original method, so unloading the plugin leaves no trace.
+ * @param systemPrompt - the prompt registry service.
+ * @param readPersona - resolves `{ text, mode }` for one assembly context, or `undefined`.
+ * @param warn - diagnostic sink.
+ * @returns the disposer that restores `assemble`.
+ */
+export const bridgeCompletePrompt = (systemPrompt, readPersona, warn = () => {}) => {
+  const original = systemPrompt?.assemble
+  if (typeof original !== 'function') return () => {}
+  const patched = async (context) => {
+    const assembly = await original.call(systemPrompt, context)
+    try {
+      return applyCompletePersona(assembly, readPersona(context))
+    } catch (error) {
+      warn('could not fold the persona into a complete system prompt', error)
+      return assembly
+    }
+  }
+  systemPrompt.assemble = patched
+  return () => {
+    if (systemPrompt.assemble === patched) systemPrompt.assemble = original
+  }
+}
+
 /** Read one event's plain text out of the shapes DSH session logs use. */
 const eventText = (event) => {
   const parts = []
@@ -1854,6 +1910,15 @@ export function apply(ctx, config = {}) {
   } catch (error) {
     warn(`section "${SECTION_NAME}" is already registered; keeping the live one`, error)
   }
+
+  // A preset that owns the whole prompt (`complete: true`) never renders our section, so the persona has to be
+  // folded into the section that preset does own. Registered through the effect, so unloading restores
+  // `assemble` instead of leaving a wrapper behind.
+  ctx.effect(() => bridgeCompletePrompt(ctx.systemPrompt, (context) => {
+    const persona = resolvePersona(currentStore().personas, subjectOf(context?.agent)).persona
+    if (persona === undefined || persona.text.trim() === '') return undefined
+    return { text: sanitizePersona(persona.text, warn), mode: persona.mode }
+  }, warn), 'agent-persona.complete-bridge')
 
   // The store is this plugin's instruction source, so no tool call may write it. The guard is monotonic: once
   // it refuses a call nothing later can allow it. Registered through the effect, so unloading the plugin

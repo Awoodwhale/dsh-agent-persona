@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Agent 预设独占提示词时人设完全不生效。** 预设的人设段若声明 `complete: true`，DSH 会在
+  `system-prompt/assemble` 瀑布流跑完之后，把 section 列表整体换成那一节 —— 插件注册的 `agent-persona`
+  永远到不了最终提示词，表现是设置页一切正常、模型那头一句都没有。现在插件在 `assemble()` 外面包一层
+  （卸载时原样还原），发现自己的 section 被丢掉并且确实有人设命中时，就把人设折进那段独占提示词：
+  追加接在后面，替换则整体替换。
+
+### Tests
+
+- 新增独占提示词折入（追加 / 替换 / 空正文 / 不外溢到普通提示词）、桥接包装的还原与失败路径的断言。
+
 ## [0.1.9] - 2026-10-23
 
 版本历史从「只能看和恢复」补成「能管理」，并且不再记录重复的正文。
