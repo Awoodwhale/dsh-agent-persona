@@ -657,13 +657,13 @@ assert.throws(() => mod.Config({ storePath: 42 }), 'while a wrong type is reject
 
 // ── interface preferences live in the store with the personas, so one file carries everything the
 // plugin remembers and two deployments pointed at different files are fully independent
-assert.deepEqual(mod.normalizePrefs(undefined), { autosave: false, showTab: true, showSidebar: true, guard: true, history: false },
+assert.deepEqual(mod.normalizePrefs(undefined), { autosave: false, showTab: true, showSidebar: true, showSettings: true, guard: true, history: false },
   'the display switches default to on: a fresh install shows the page everywhere')
-assert.deepEqual(mod.normalizePrefs({}), { autosave: false, showTab: true, showSidebar: true, guard: true, history: false }, 'and an empty object means the same')
-assert.deepEqual(mod.normalizePrefs({ autosave: true, showTab: false, showSidebar: false, guard: false, history: true }),
-  { autosave: true, showTab: false, showSidebar: false, guard: false, history: true }, 'while explicit values are kept')
-assert.deepEqual(mod.normalizePrefs({ showTab: 'yes', autosave: 1, showSidebar: 0, guard: 0, history: 'yes' }),
-  { autosave: false, showTab: true, showSidebar: true, guard: true, history: false },
+assert.deepEqual(mod.normalizePrefs({}), { autosave: false, showTab: true, showSidebar: true, showSettings: true, guard: true, history: false }, 'and an empty object means the same')
+assert.deepEqual(mod.normalizePrefs({ autosave: true, showTab: false, showSidebar: false, showSettings: false, guard: false, history: true }),
+  { autosave: true, showTab: false, showSidebar: false, showSettings: false, guard: false, history: true }, 'while explicit values are kept')
+assert.deepEqual(mod.normalizePrefs({ showTab: 'yes', autosave: 1, showSidebar: 0, showSettings: 'yes', guard: 0, history: 'yes' }),
+  { autosave: false, showTab: true, showSidebar: true, showSettings: true, guard: true, history: false },
   'autosave needs exactly true; a display switch turns off only on exactly false, so junk means on')
 assert.equal(mod.normalizePrefs(undefined).guard, true, 'the store guard is on unless it is switched off explicitly')
 

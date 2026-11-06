@@ -59,7 +59,7 @@ src/client.ts ──esbuild --bundle──▶ lib/client.js  ◀─────�
       ]
     }
   ],
-  "prefs": { "autosave": false, "showTab": true, "showSidebar": true }
+  "prefs": { "autosave": false, "showTab": true, "showSidebar": true, "showSettings": true, "guard": true }
 }
 ```
 
@@ -131,7 +131,7 @@ host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `supe
 | `sessionPrompt` | `{ id }` | `{ available, cwd, reason, matchedBy, persona, prompt }` —— 对话页「人设 / 提示词」两个面板的数据 |
 | `tunePersona` | `{ mode, instruction, text, provider?, model? }` | `{ text, mode, provider, model, source }` |
 | `listModels` | — | `{ models[], hostDefault, configured }` |
-| `savePrefs` | `{ autosave?, showTab?, showSidebar?, guard?, history? }` | 视图（部分合并，未提及的字段保留） |
+| `savePrefs` | `{ autosave?, showTab?, showSidebar?, showSettings?, guard?, history? }` | 视图（部分合并，未提及的字段保留） |
 
 约定（踩出来的）：
 
@@ -144,24 +144,29 @@ host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `supe
 
 | 座位 / 方式 | 位置 | 说明 |
 |---|---|---|
-| `settings.section`（order 22） | 设置 → Agent 人设 | 完整管理页：**三个偏好开关**、列表、规则编辑器、正文编辑/预览、AI 调优 —— 它不受这三个开关影响，所以是它们的回头路。标题旁是项目链接（GitHub / npm，simple-icons 的品牌图形内联，`currentColor` 跟随主题）与**当前安装版本的胶囊**（数据来自宿主的 `PLUGIN_INFO`，见 §4 的 `pluginVersion` / `installOrigin`） |
+| `settings.section`（order 22） | 设置 → Agent 人设 | 完整管理页：**六个偏好开关**、列表、规则编辑器、正文编辑/预览、AI 调优；由 `showSettings` 决定是否注册。标题旁是项目链接（GitHub / npm，simple-icons 的品牌图形内联，`currentColor` 跟随主题）与**当前安装版本的胶囊**（数据来自宿主的 `PLUGIN_INFO`，见 §4 的 `pluginVersion` / `installOrigin`） |
 | `conversation.view`（order 30） | 对话页顶部「人设」 | 人设 / 提示词 / 管理 三个面板；由 `showTab` 决定是否注册 |
 | `betterSidebar.registerTab` | dsh-better-sidebar 的右侧栏 | 同一套页面挂进侧边栏；由 `showSidebar` 决定注册还是注销，未装该插件时**不注册也不显示开关** |
+| `plugins.bundle.config`（key = 包名 `dsh-agent-persona`） | 插件 → 本插件详情页。「界面与功能」 | 与设置页同一组开关（共用 `persistPrefs` / `savePrefs`），行内状态提示（`role=status`），不出 toast。**它是设置入口被关掉之后的回头路** |
 
-对话页与侧边栏两处都在**运行时**注册/注销（切换开关立即生效），而决策来自 §6 的镜像。
-本插件**不往 `settings.general.item` 注册任何条目** —— 偏好开关只出现在设置页里（上表第一行），
-`test/client-helpers.test.mjs` 有一条断言守着这一点。
+三个座位都在**运行时**注册/注销（切换开关立即生效），决策来自 §6 的镜像。
+本插件**不往 `settings.general.item` 注册任何条目**，`test/client-helpers.test.mjs` 有断言守着这一点。
+
+包根的 `icon.svg`（`package.json` 的顶层 `icon` 字段）给插件列表/详情页提供图标；`locale/zh.json` 与
+`locale/en.json` 的 `meta.title` / `meta.description` 提供显示名称与描述（见 dsh 的 `readPluginMeta` 规则：
+图标 ≤256 KiB 且必须在包内，locale 从 `<包名>/locale/<lang>.json` 解析）。
 
 ## 6. 界面偏好
 
-五个偏好（`autosave` / `showTab` / `showSidebar` / `guard` / `history`）**存在人设文件的 `prefs` 里**，与数据同域，经 `savePrefs` 写入；
-每个 `listPersonas` / `sessionPrompt` 的返回都带上它们。`guard` 默认开启，缺字段即视为开启
-（`raw?.guard !== false`），所以旧存储不需要迁移。
+六个偏好（`autosave` / `showTab` / `showSidebar` / `showSettings` / `guard` / `history`）**存在人设文件的 `prefs` 里**，与数据同域，经 `savePrefs` 写入；
+每个 `listPersonas` / `sessionPrompt` 的返回都带上它们。显示类开关默认开启，缺字段即视为开启
+（`raw?.showTab !== false` 这一族写法），所以旧存储不需要迁移。
 
 浏览器侧另有一份 **localStorage 镜像**，只做一件事："加载时决定要不要注册视图" —— 那个决定发生在任何宿主调用
 能返回之前，必须同步可得。每次收到视图都会刷新镜像，所以下一次加载与文件一致；**文件是唯一真相**。
 
-`autosave` / `showTab` / `showSidebar` 由客户端消费；`guard` 只由宿主消费，见 §9。
+`autosave` / `showTab` / `showSidebar` / `showSettings` 由客户端消费；`guard` 只由宿主消费，见 §9。
+设置页与插件页两处开关写的是同一份 `prefs`（同一个 `savePrefs`），所以两边永远一致。
 
 ## 7. 模型解析（AI 调优）
 

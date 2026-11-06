@@ -144,7 +144,9 @@ assert.equal(/setTimeout|requestAnimationFrame/.test(tabClick), false, 'with no 
 // ── interface preferences: where the page shows up, and whether edits save themselves
 assert.ok(source.includes('const readPrefs = () =>'), 'preferences are read from storage')
 assert.ok(source.includes('dsh-agent-persona.prefs'), 'under a namespaced key')
-assert.ok(source.includes('if (prefs.showTab) ctx.slots.inject(\'conversation.view\''), 'the conversation tab is registered only when enabled')
+assert.ok(source.includes('const mountTabSeat = () => {'), 'the conversation tab is a seat that mounts and drops at runtime')
+assert.ok(source.includes("ctx.slots.inject('conversation.view'"), 'which registers the slot entry')
+assert.ok(source.includes('if (current.showTab === false) dropTabSeat(); else mountTabSeat()'), 'and follows the switch without a reload')
 assert.equal((source.match(/if \(prefs\.showSidebar\)/g) ?? []).length, 0, 'the sidebar is no longer gated at load')
 assert.ok(source.includes('readPrefs().showSidebar === false'), 'the tab type follows the switch at runtime instead')
 assert.ok(source.includes('betterSidebar'), "and turning it on places the module through the sidebar plugin's service")
@@ -247,11 +249,17 @@ assert.ok(source.includes('writePrefs(view.prefs)'), 'and every view refreshes t
 assert.ok(source.includes('store is the source of truth for preferences'), 'which the comment states, so nobody mistakes the mirror for the truth')
 
 
-// ── the switches live on the settings page only, and that seat must stay ungated: it is the way back
-// from them, since the conversation tab and the sidebar card can both be switched off from there.
+// ── every seat is a slot entry that can be mounted and dropped at runtime. The settings entry follows
+// its own switch, and the configuration section on the plugin's page in the Plugins panel carries the
+// same switches — that page is the way back in once the settings entry is switched off.
 assert.equal(source.includes("ctx.slots.inject('settings.general.item'"), false, 'General settings does not carry this plugin')
-const settingsSeat = source.slice(source.indexOf("ctx.slots.inject('settings.section'"), source.indexOf('}, WorkspacePersonaSection'))
-assert.equal(/if \(prefs\./.test(settingsSeat), false, 'and the settings seat is registered unconditionally')
+assert.ok(source.includes('const mountSettingsSeat = () => {'), 'the settings entry is a seat too')
+assert.ok(source.includes("ctx.slots.inject('settings.section'"), 'registered through its mount function')
+assert.ok(source.includes("if (current.showSettings === false) dropSettingsSeat(); else mountSettingsSeat()"), 'and follows its own switch without a reload')
+assert.ok(source.includes("ctx.slots.inject('plugins.bundle.config'"), 'the plugin page gets the same switches')
+assert.ok(source.includes("key: 'dsh-agent-persona'"), 'keyed by the bundle package name that page looks up')
+assert.ok(source.includes('class PluginConfigSection'), 'with a component of its own')
+assert.ok(source.includes('界面与功能'), 'whose heading says what it configures')
 assert.ok(source.includes('const persistPrefs = (api, unwrap, current, patch, report)'), 'both surfaces share one save implementation')
 assert.ok(source.includes('persistPrefs(this.api(), (result) => this.unwrap(result)'), 'which the settings page uses')
 
@@ -261,7 +269,7 @@ assert.ok(source.includes('persistPrefs(this.api(), (result) => this.unwrap(resu
 assert.ok(source.includes('let sidebarProbe = () => undefined'), 'the probe exists')
 assert.ok(source.includes('sidebarProbe = () => {'), 'and is assigned in apply')
 assert.ok(source.includes("return ctx.get('betterSidebar')"), 'probing the sidebar plugin itself')
-assert.equal((source.match(/sidebarProbe\(\) === undefined/g) ?? []).length, 1, 'the settings page gates that one switch on it')
+assert.equal((source.match(/sidebarProbe\(\) === undefined/g) ?? []).length, 2, 'both the settings page and the plugin config section gate that switch on it')
 
 // ── the project links beside the settings title carry the real brand marks, inlined rather than
 // borrowed from the component library (which ships none), and the version chip reports the copy that
@@ -386,7 +394,8 @@ assert.equal(prefStatus({ guard: false }).includes('自动保存'), false, 'the 
 assert.equal(prefStatus({ guard: true }).includes('模型'), true, 'and says what is guarded, from whom')
 assert.equal(prefStatus({ history: true }).includes('自动保存'), false, 'the history switch never talks about autosave')
 assert.notEqual(prefStatus({ history: true }), prefStatus({ history: false }), 'a switch says something different in each direction')
-assert.equal(prefStatus({ showTab: false }).includes('刷新'), true, 'the tab switch still says the change lands on reload')
+assert.equal(prefStatus({ showTab: false }).includes('刷新'), false, 'the tab switch now lands at once, so it no longer promises a reload')
+assert.equal(prefStatus({ showSettings: false }).includes('设置左栏'), true, 'the settings-entry switch names its own entry')
 assert.equal(prefStatus({}), '已保存', 'an unrecognised patch still reports something')
 // A repeated sentence has to mount a fresh toast, so the element is keyed on a counter that every
 // status write advances — not on a constant the reconciler reuses.

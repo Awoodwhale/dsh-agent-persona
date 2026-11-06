@@ -243,7 +243,7 @@ window.__ModuleLoader__.load({
       if (index < text.length) nodes.push(text.slice(index))
       return nodes
     }
-    const DEFAULT_PREFS = { autosave: false, showTab: true, showSidebar: true, guard: true }
+    const DEFAULT_PREFS = { autosave: false, showTab: true, showSidebar: true, showSettings: true, guard: true }
     /**
      * Whether the sidebar plugin is installed. Answered by that plugin's own service at render time:
      * `betterSidebar.registerTab` is what actually puts a card into its 侧边栏内容 list, and the old
@@ -259,6 +259,13 @@ window.__ModuleLoader__.load({
 let sidebarProbe = () => undefined
 /** Set once the sidebar tab service exists; toggling the preference calls it to add or drop the module. */
 let syncSidebarModule = () => {}
+
+/**
+ * The two seat switches (conversation tab and the Settings dialog entry) turn their slot entry on and
+ * off at runtime. Same shape as the sidebar sync above: one function every switch calls, and it reads
+ * the preference itself so a switch never has to pass the whole prefs object around.
+ */
+let syncDisplaySeats = () => {}
 
 /** Ask the sidebar plugin to place our module in the right bar of the session in view. */
 const openSidebarModule = (ctx) => {
@@ -301,8 +308,9 @@ const readPrefs = () => {
      */
     const PREF_STATUS = {
       autosave: (on) => (on ? '已开启：编辑后停止输入约 1 秒即自动保存' : '已关闭：改完要自己点保存'),
-      showTab: (on) => (on ? '已显示「人设」标签（刷新页面后出现）' : '已隐藏「人设」标签（刷新页面后生效）'),
+      showTab: (on) => (on ? '已显示「人设」标签' : '已隐藏「人设」标签'),
       showSidebar: (on) => (on ? '已注册到 dsh-better-sidebar' : '已从 dsh-better-sidebar 注销'),
+      showSettings: (on) => (on ? '已显示设置左栏入口' : '已隐藏设置左栏入口，从「插件」页可随时打开这个页面'),
       guard: (on) => (on ? '已开启：模型的写入与命令工具不能再改人设存储' : '已关闭：模型可以直接改写人设存储'),
       history: (on) => (on ? '已开启：每次保存都会记一条版本历史' : '已关闭：不再记新版本，已有历史仍可查看与恢复'),
     }
@@ -322,6 +330,7 @@ const readPrefs = () => {
       const next = writePrefs({ ...current, ...patch })
       report({ prefs: next, status: prefStatus(patch) })
       syncSidebarModule()
+      syncDisplaySeats()
       if (api === undefined || typeof api.savePrefs !== 'function') return next
       // Send only what changed. The host merges into what it has, so sending the whole object made a second
       // tab's older copy overwrite this tab's switch (and the host's own defaults) on every flip.
@@ -347,7 +356,7 @@ const readPrefs = () => {
 
 
     const CSS = `
-.wsp-root, .wsp-view, .wsp-chat-modal, .wsp-import-modal, [data-plugin="dsh-agent-persona"], [data-plugin="agent-persona"] {
+.wsp-root, .wsp-view, .wsp-chat-modal, .wsp-import-modal, .wsp-plugin-config, [data-plugin="dsh-agent-persona"], [data-plugin="agent-persona"] {
   --wsp-line: var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.25));
   --wsp-line-soft: rgba(128, 128, 128, 0.14);
   --wsp-line-strong: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.4));
@@ -572,6 +581,21 @@ const readPrefs = () => {
 .wsp-icon-btn-danger:hover { color: var(--wsp-danger); background: var(--dsw-alias-interactive-bg-hover-danger, rgba(248, 81, 73, 0.1)); }
 
 /* ── switch ────────────────────────────────────────────────────────────── */
+/* The Preferences section on the plugin's own page in the Plugins panel. It is not inside .wsp-app, so
+   it carries the token scope itself (see the root selector above); otherwise var(--wsp-success) on a
+   checked track resolves to nothing and the switch reads as a white dot on transparent. */
+.wsp-plugin-config { display: flex; flex-direction: column; gap: 10px; max-width: none; width: auto; padding: 14px 16px; border: 1px solid var(--wsp-line); border-radius: 12px; background: var(--wsp-surface); }
+.wsp-plugin-config-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.wsp-plugin-config-title { font-size: 14px; font-weight: 600; color: var(--wsp-text); }
+.wsp-plugin-config-note { font-size: 11px; color: var(--wsp-muted-2); }
+.wsp-plugin-config-desc { margin: 0; font-size: 12px; line-height: 1.7; color: var(--wsp-muted); text-wrap: pretty; max-width: 76ch; }
+.wsp-plugin-config-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 2px 26px; }
+.wsp-plugin-config-grid .wsp-switch { justify-content: flex-start; gap: 9px; padding: 7px 0; border-top: 1px solid var(--wsp-line-soft); }
+.wsp-plugin-config-grid .wsp-switch:first-child { border-top: 0; }
+.wsp-plugin-config-grid .wsp-switch-text { font-size: 12.5px; }
+.wsp-plugin-config-status { font-size: 11.5px; color: var(--wsp-muted); }
+.wsp-plugin-config-status.is-error { color: var(--wsp-danger); }
+
 .wsp-switch { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
 .wsp-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
 .wsp-switch-track { position: relative; width: 30px; height: 18px; border-radius: 999px; background: rgba(128, 128, 128, 0.3); transition: background 150ms ease; flex: none; }
@@ -2898,6 +2922,7 @@ const since = (timestamp) => {
           className: 'wsp-chat-modal',
           contentClassName: 'wsp-chat-content',
           open: history !== undefined,
+          closeLabel: '关闭',
           onClose: () => this.onChange({ history: undefined }),
           title: history === undefined ? '' : (sessionById(history.id)?.title ?? `会话 ${history.id}`),
           description: history === undefined ? undefined : [
@@ -2982,6 +3007,13 @@ const since = (timestamp) => {
         const prefs = state.prefs ?? DEFAULT_PREFS
         const prefsRow = h('div', { className: 'wsp-prefs', key: 'prefs' }, [
           h(Switch, {
+            key: 'settings',
+            checked: prefs.showSettings !== false,
+            label: '在设置左栏显示「Agent 人设」',
+            hint: '设置对话框左侧的「Agent 人设」入口。关掉后仍在「插件 → dsh-agent-persona」这个页面里改人设，所以随时能回来。',
+            onChange: (next) => this.setPref({ showSettings: next }),
+          }),
+          h(Switch, {
             key: 'auto',
             checked: prefs.autosave === true,
             label: '编辑后自动保存',
@@ -3024,6 +3056,7 @@ const since = (timestamp) => {
         const confirmModal = pendingDelete === undefined ? null : h(Modal, {
           key: 'confirm',
           open: true,
+          closeLabel: '关闭',
           onClose: () => this.onChange({ confirmDelete: undefined }),
           title: '删除这条人设？',
           description: `「${pendingDelete.name}」会从存储里移除，无法撤销。`,
@@ -3057,6 +3090,7 @@ const since = (timestamp) => {
         const versionsModal = versionsState === undefined && state.versionsError === '' ? null : h(Modal, {
           key: 'versions',
           open: true,
+          closeLabel: '关闭',
           onClose: () => this.onChange({ versions: undefined, versionDiff: undefined, versionsError: '', versionIndex: undefined }),
           title: `版本历史${versionsState?.name === undefined ? '' : ` · ${versionsState.name}`}`,
           description: '每次保存记一条正文 diff。恢复会把选中的版本写回当前人设，并作为一条新记录，所以恢复本身也能再回滚。',
@@ -3150,6 +3184,7 @@ const since = (timestamp) => {
           className: 'wsp-import-modal',
           contentClassName: 'wsp-import-content',
           open: true,
+          closeLabel: '关闭',
           onClose: () => this.closeImport(),
           title: '导入人设',
           description: '选一个导出的 .json 文件，或把内容粘贴到下面。导入的人设一律新建并停用，默认人设不会被替换。',
@@ -3237,6 +3272,113 @@ const since = (timestamp) => {
       }
     }
 
+    // ── the plugin's own configuration page ─────────────────────────────────
+
+    /**
+     * The「界面与功能」section on the plugin's page in the Plugins panel (`plugins.bundle.config`,
+     * keyed by the bundle package name). Same preferences as the Settings page, rendered where the
+     * plugin is installed and switched on: once the Settings entry is hidden, this page is the way
+     * back in. No form and no staged edits — every switch saves immediately, so the page and this
+     * section never disagree about what is on.
+     */
+    class PluginConfigSection extends React.Component {
+      constructor(props) {
+        super(props)
+        this.state = { prefs: readPrefs(), status: '', error: '' }
+        this.mounted = false
+        this.onChange = (patch) => {
+          if (!this.mounted) return
+          this.setState(patch)
+        }
+      }
+
+      componentDidMount() {
+        this.mounted = true
+      }
+
+      componentWillUnmount() {
+        this.mounted = false
+      }
+
+      api() {
+        return apiOf(this.props)
+      }
+
+      unwrap(raw) {
+        return unwrapEnvelope(raw)
+      }
+
+      setPref(patch) {
+        this.onChange({ error: '' })
+        persistPrefs(this.api(), (result) => this.unwrap(result), this.state.prefs ?? DEFAULT_PREFS, patch, (update) => {
+          if (update === null || typeof update !== 'object') return
+          const next: { prefs?: unknown; status?: string } = {}
+          if (update.prefs !== undefined) next.prefs = update.prefs
+          if (update.view !== undefined && update.view !== null && update.view.prefs !== undefined) next.prefs = update.view.prefs
+          if (typeof update.status === 'string') next.status = update.status
+          this.onChange(next)
+        })
+      }
+
+      render() {
+        const prefs = this.state.prefs ?? DEFAULT_PREFS
+        const rows = [
+          h(Switch, {
+            key: 'auto',
+            checked: prefs.autosave === true,
+            label: '编辑后自动保存',
+            hint: '编完正文或改完适用范围就立刻写入存储，不用再点保存。关掉后由你手动点保存。',
+            onChange: (next) => this.setPref({ autosave: next }),
+          }),
+          h(Switch, {
+            key: 'settings',
+            checked: prefs.showSettings !== false,
+            label: '在设置左栏显示「Agent 人设」',
+            hint: '设置对话框左侧的「Agent 人设」入口。关掉后仍在「插件 → dsh-agent-persona」这个页面里改人设，所以随时能回来。',
+            onChange: (next) => this.setPref({ showSettings: next }),
+          }),
+          h(Switch, {
+            key: 'tab',
+            checked: prefs.showTab !== false,
+            label: '在对话页显示「人设」标签',
+            hint: '在每条会话顶部显示「人设」标签：能看到这条会话命中了哪条人设、实际发出去的 system prompt，并就地管理全部人设。',
+            onChange: (next) => this.setPref({ showTab: next }),
+          }),
+          ...(sidebarProbe() === undefined ? [] : [h(Switch, {
+            key: 'side',
+            checked: prefs.showSidebar !== false,
+            label: '注册到 dsh-better-sidebar',
+            hint: '把这个页面挂进 dsh-better-sidebar 的右侧栏；在它的「侧边卡片 → 侧边栏内容」里会多出「Agent 人设」。注销即刻移除。',
+            onChange: (next) => this.setPref({ showSidebar: next }),
+          })]),
+          h(Switch, {
+            key: 'history',
+            checked: prefs.history === true,
+            label: '保存人设版本历史',
+            hint: '打开后每次保存都会把这次的正文改动记成一条 diff（另存 personas.history.json），可以在编辑器的「版本历史」里对比，并把任意一条恢复成当前正文。只记正文，不记名称与范围。',
+            onChange: (next) => this.setPref({ history: next }),
+          }),
+          h(Switch, {
+            key: 'guard',
+            checked: prefs.guard !== false,
+            label: '禁止模型改写人设文件',
+            hint: '按能力判定：任何会写入或删除人设存储（含它的历史文件与备份副本）的工具调用都会被拒，不看工具叫什么名字；读取、搜索、把路径写进笔记都不受影响。这是行为层面的限制，不是安全边界：本机上的其它程序仍可修改。',
+            onChange: (next) => this.setPref({ guard: next }),
+          }),
+        ]
+        return h('div', { className: 'wsp-plugin-config' }, [
+          h('div', { className: 'wsp-plugin-config-head', key: 'head' }, [
+            h('span', { className: 'wsp-plugin-config-title', key: 'title' }, '界面与功能'),
+            h('span', { className: 'wsp-plugin-config-note', key: 'note' }, '开关立刻生效，并写进人设文件'),
+          ]),
+          h('p', { className: 'wsp-plugin-config-desc', key: 'desc' }, '决定这个插件在 DSH 里出现在哪，以及编辑时有哪些保护。人设内容仍在「设置 → Agent 人设」里编辑；把设置左栏入口关掉后，这个页面就是回来的路。'),
+          h('div', { className: 'wsp-plugin-config-grid', key: 'grid' }, rows),
+          this.state.error === '' ? null : h('div', { className: 'wsp-plugin-config-status is-error', key: 'err', role: 'alert' }, this.state.error),
+          this.state.status === '' ? null : h('div', { className: 'wsp-plugin-config-status', key: 'status', role: 'status', 'aria-live': 'polite' }, this.state.status),
+        ])
+      }
+    }
+
     // ── plugin ──────────────────────────────────────────────────────────────
 
     const inject = ['slots', 'remote', 'connection']
@@ -3248,15 +3390,53 @@ const since = (timestamp) => {
         if (styleElement === style) styleElement = undefined
       }, `${NS}: styles`)
 
-      // Register SYNCHRONOUSLY so the entry is live for the renderer's first pass.
-      const prefs = readPrefs()
-
-      if (prefs.showTab) ctx.slots.inject('conversation.view', () => ctx.slots.register({
-        name: 'conversation.view',
-        id: 'agent-persona',
-        order: 30,
-        label: () => '人设',
-      }, PersonaView))
+      // Register SYNCHRONOUSLY so the entry is live for the renderer's first pass. The two seat switches
+      // own a registration each and keep its disposer, so turning one off takes the entry away right then
+      // — the preference is the source of truth, and both the Settings page and the plugin's own page on
+      // the Plugins panel write it.
+      let tabSeatMounted = false
+      let settingsSeatMounted = false
+      let disposeTabSeat
+      let disposeSettingsSeat
+      const mountTabSeat = () => {
+        if (tabSeatMounted) return
+        tabSeatMounted = true
+        disposeTabSeat = ctx.slots.inject('conversation.view', () => ctx.slots.register({
+          name: 'conversation.view',
+          id: 'agent-persona',
+          order: 30,
+          label: () => '人设',
+        }, PersonaView))
+      }
+      const dropTabSeat = () => {
+        if (!tabSeatMounted) return
+        tabSeatMounted = false
+        if (typeof disposeTabSeat === 'function') disposeTabSeat()
+        disposeTabSeat = undefined
+      }
+      const mountSettingsSeat = () => {
+        if (settingsSeatMounted) return
+        settingsSeatMounted = true
+        disposeSettingsSeat = ctx.slots.inject('settings.section', () => ctx.slots.register({
+          name: 'settings.section',
+          id: NS,
+          order: 22,
+          label: () => 'Agent 人设',
+          inject: () => ({ api: capturedApi }),
+        }, WorkspacePersonaSection))
+      }
+      const dropSettingsSeat = () => {
+        if (!settingsSeatMounted) return
+        settingsSeatMounted = false
+        if (typeof disposeSettingsSeat === 'function') disposeSettingsSeat()
+        disposeSettingsSeat = undefined
+      }
+      syncDisplaySeats = () => {
+        const current = readPrefs()
+        if (current.showTab === false) dropTabSeat(); else mountTabSeat()
+        if (current.showSettings === false) dropSettingsSeat(); else mountSettingsSeat()
+      }
+      syncDisplaySeats()
 
       // The sidebar is adapted through the sidebar plugin's own service (dsh-better-sidebar):
       // it owns the tab list, and a registered tab type with a guide entry is what appears
@@ -3328,13 +3508,15 @@ const since = (timestamp) => {
         }
       }
 
-      ctx.slots.inject('settings.section', () => ctx.slots.register({
-        name: 'settings.section',
-        id: NS,
-        order: 22,
-        label: () => 'Agent 人设',
-        inject: () => ({ api: capturedApi }),
-      }, WorkspacePersonaSection))
+      // The bundle's own configuration page on the Plugins panel. Keyed by the BUNDLE package name:
+      // that is what the page looks up in its configuration ledger, and it renders this section
+      // between the bundle's description and its rows only when that key is registered here.
+      // This page is the way back in once the Settings entry is switched off.
+      // A keyed slot keys on `key`/`priority`; `order` is meaningless here (and silently ignored).
+      ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+        name: 'plugins.bundle.config',
+        key: 'dsh-agent-persona',
+      }, PluginConfigSection))
 
       // Mount the Remote namespace, then expose it to the already-registered pages.
       void (async () => {

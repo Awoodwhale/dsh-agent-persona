@@ -4,6 +4,35 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-11-07
+
+插件页自己会管配置了，图标、显示名和最新的 DSH 也对上了。
+
+### Added
+
+- **插件详情页多了「界面与功能」。** 在「插件」里点开 dsh-agent-persona，描述和组件行之间就是这组开关：
+  编辑后自动保存、在设置左栏显示「Agent 人设」、在对话页显示「人设」标签、注册到 dsh-better-sidebar、
+  保存人设版本历史、禁止模型改写人设文件。它和设置页里那组开关写的是同一份 `prefs`，在哪里改都一样。
+- **`showSettings` 偏好（默认开启）。** 关掉之后设置弹窗左栏不再出现本插件；插件页上的「界面与功能」
+  就是回来的路，不会被自己关掉。
+- **四个座位的切换全部即时生效。** 设置入口、对话页标签、dsh-better-sidebar 卡片都在运行时注册/注销，
+  不再需要刷新页面（对话页标签旧版需要刷新，现在不用了）。
+- **自己的图标与显示名。** `icon.svg`（人设卡片 + prompt 角标）通过 package.json 顶层 `icon` 字段提供；
+  `locale/zh.json` / `locale/en.json` 提供「Agent 人设 / Agent Persona」标题与描述，插件列表、详情页都生效。
+
+### Changed
+
+- **DSH 兼容范围收敛到 0.2.x。** peer 下限从 `0.1.5-rc.1` 抬到 `0.2.0-rc.2`（图标组件等 API 从这一版才有），
+  `dsh.compatibility.dshReleases` 只保留 0.2.0-rc.2 / 0.2.1-rc.2 / 0.2.2-rc.1，并补了 `engines.dsh`。
+- 插件详情页的 `plugins.bundle.config` 注册去掉了无意义的 `order`（keyed slot 只认 key/priority）；
+  四个弹窗补了 `closeLabel`，关闭按钮有可访问名。
+- `showTab` 的状态文案改成「已显示/已隐藏「人设」标签」，不再提「刷新页面」。
+
+### Tests
+
+- 源码审计跟着新结构更新：动态座位（mount/drop）、`plugins.bundle.config` 注册、插件页组件、`showSettings`
+  归一化与状态文案；客户端断言 196 条，宿主断言 254 条，`generate-remote --check` 通过。
+
 ## [0.1.9] - 2026-10-23
 
 版本历史从「只能看和恢复」补成「能管理」，并且不再记录重复的正文。

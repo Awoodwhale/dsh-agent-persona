@@ -81,7 +81,7 @@ export const Config = Schema.object({
   tuneModel: Schema.string().default(''),
 })
 
-export const inject = ['systemPrompt', 'connection', 'webServer', 'tools']
+export const inject = ['systemPrompt', 'tools']
 
 const DSH_HOME = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 /** Everything this plugin writes lives under one directory of its own. */
@@ -192,15 +192,18 @@ const normalizePersona = (raw) => ({
  */
 /**
  * Interface preferences live in the store, next to the personas, so one file carries everything the
- * plugin remembers and two deployments pointed at different files are fully independent. The two
- * display switches default to on: a fresh install shows the page everywhere until told otherwise.
+ * plugin remembers and two deployments pointed at different files are fully independent. Every display
+ * switch (the Settings entry, the conversation tab, the sidebar card) defaults to on: a fresh install
+ * shows the page everywhere until told otherwise.
  */
-const DEFAULT_PREFS = { autosave: false, showTab: true, showSidebar: true, guard: true }
+const DEFAULT_PREFS = { autosave: false, showTab: true, showSidebar: true, showSettings: true, guard: true }
 
 export const normalizePrefs = (raw) => ({
   autosave: raw?.autosave === true,
   showTab: raw?.showTab !== false,
   showSidebar: raw?.showSidebar !== false,
+  /** The Settings dialog's left-hand entry. The plugin's page on the Plugins panel is the way back in. */
+  showSettings: raw?.showSettings !== false,
   guard: raw?.guard !== false,
   /** Opt-in version history: off by default, because it writes a second file on every save. */
   history: raw?.history === true,

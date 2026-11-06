@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Agent Persona",
+    "description": "Workspace personas for DeepSeek Harness: scope system prompts by workspace path or session id, edit them in place, and keep version history."
+  }
+}
