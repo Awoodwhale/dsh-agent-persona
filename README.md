@@ -22,7 +22,7 @@
 dsh plugin --profile web add dsh-agent-persona
 ```
 
-装完**重启一次 `dsh web`**。profile 的 bundles 只在启动时读取，插件行就是从这里挂进去的。重启后设置左栏会多出 **Agent 人设**；`~/.dsh/dsh-agent-persona/state.json` 里也有加载心跳，写明了加载的文件、人设存哪、一共几条。
+装完**重启一次 `dsh web`**。profile 的 bundles 只在启动时读取，插件行就是从这里挂进去的。如果宿主由 systemd 之类的服务托管，用 `sudo systemctl restart <你的服务名>` 重启，别自己 kill 掉进程再手起。重启后设置左栏会多出 **Agent 人设**；`~/.dsh/dsh-agent-persona/state.json` 里也有加载心跳，写明了加载的文件、人设存哪、一共几条。
 
 升级、卸载同样是 `dsh plugin --profile web update|remove dsh-agent-persona`，重启一次后生效。人设文件不会跟着删，也不会被覆盖。仓库里另有本地安装脚本：`bash scripts/install.sh`（Windows 用 `scripts/install.ps1`）。
 
@@ -54,7 +54,7 @@ dsh plugin --profile web add dsh-agent-persona
 
 关掉「在设置左栏显示「Agent 人设」」只是从设置导航里隐藏，插件详情页仍在，可以继续改人设、随时开回来。插件列表里中文名是「Agent 人设」、英文名是「Agent Persona」，说明文字来自 `locale/`，图标是包根的 `icon.svg`，不跟随主题色。
 
-![插件详情页头部：Agent 人设图标、版本号 v0.2.0 与中文描述](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/plugin-detail-icon.png)
+![插件详情页头部：Agent 人设图标、版本号与中文描述](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/plugin-detail-icon.png)
 
 ## 人设列表与编辑
 
@@ -83,7 +83,7 @@ dsh plugin --profile web add dsh-agent-persona
 选中一条会话后，顶部有 **人设 / 提示词 / 管理** 三个面板：
 
 - **人设**：命中了哪条人设、依据是哪几条规则、正文渲染结果，以及就地编辑器；
-- **提示词**：这条会话**实际发出去的** system prompt，可切换渲染/源码、复制、刷新；
+- **提示词**：这条会话**实际发出去的** system prompt，可切换渲染/源码、复制、刷新。一轮对话结束时它会自己重新读一次，不用手动点刷新；如果你正开着编辑框，它不会把你的改动冲掉；
 - **管理**：和设置页同一套卡片，就地新建、启用、编辑、排序、复制、删除。
 
 旁边的只读会话记录弹窗只显示你真正敲进去的内容，插件注入的「看起来像用户消息」的内容会折叠成一行提示；长消息可单条展开，也能跳到最新。
@@ -155,7 +155,7 @@ DSH 组装到最后会把别的 section 全扔掉，插件写的那节也一样�
 
 当前生效的文件路径始终显示在「Agent 人设」页的 meta 行上（`保存在 …`）。配置项还有 `tuneProvider` / `tuneModel`，留空就用 DSH 当前设置的模型。
 
-安全这块说清楚：**人设是行为约束，不是安全边界**。它约束模型怎么说，不阻止模型用工具。插件注册了一个全局 `tools.guard`，按能力判断这次调用会不会写到 `personas.json`、它的历史文件或备份副本——参数里的路径、shell 命令的重定向目标和写入型命令、补丁正文里的目标都算。但本机 `danger-full-access` 下仍能绕过：改插件代码、运行时拼接的路径、`$VAR` 展开、别名包装，静态判定都看不见。要更结实得在机器层面做，比如 `chflags uchg <人设文件>`，或者把 DSH 跑在受限沙箱里。
+安全这块说清楚：**人设是行为约束，不是安全边界**。它约束模型怎么说，不阻止模型用工具。插件注册了一个全局 `tools.guard`，按能力判断这次调用会不会写到 `personas.json`、它的历史文件或备份副本——参数里的路径、shell 命令的重定向目标和写入型命令、补丁正文里的目标都算。但在 `danger-full-access` 权限下仍能绕过：改插件代码、运行时拼接的路径、`$VAR` 展开、别名包装，静态判定都看不见。要更结实得在机器层面做，比如 `chflags uchg <人设文件>`，或者把 DSH 跑在受限沙箱里。
 
 文件存在但读不出来时，页面会说明原因，并在第一次保存前把原文件备份成 `personas.json.bak-<时间戳>`；备份失败就不写入。
 

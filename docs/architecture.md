@@ -19,7 +19,7 @@ src/index.ts  ──tsc──▶  lib/index.js + lib/index.d.ts      │（前�
 src/client.ts ──esbuild --bundle──▶ lib/client.js  ◀───────┘
 ```
 
-- `src/endpoints.ts` 是**远程面的单一来源**（包名、通道名、服务名、15 个方法名、哪些方法收参数）。
+- `src/endpoints.ts` 是**远程面的单一来源**（包名、通道名、服务名、16 个方法名、哪些方法收参数）。
 - `src/remote.ts` / `src/typert.ts` 是**生成产物，不要手改**：改 `endpoints.ts` 后跑 `npm run generate:remote`；
   `npm test` 的最后一步会重新生成并比对，不一致就失败。
 - host 是标准的 Cordis 插件（`export const name / inject / apply`），import Node 内置模块、
@@ -166,11 +166,11 @@ host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `supe
 | 座位 / 方式 | 位置 | 说明 |
 |---|---|---|
 | `settings.section`（order 22） | 设置 → Agent 人设 | 完整管理页：**六个偏好开关**、列表、规则编辑器、正文编辑/预览、AI 调优；由 `showSettings` 决定是否注册。标题旁是项目链接（GitHub / npm，simple-icons 的品牌图形内联，`currentColor` 跟随主题）与**当前安装版本的胶囊**（数据来自宿主的 `PLUGIN_INFO`，见 §4 的 `pluginVersion` / `installOrigin`） |
-| `conversation.view`（order 30） | 对话页顶部「人设」 | 人设 / 提示词 / 管理 三个面板；由 `showTab` 决定是否注册 |
+| `conversation.view`（order 30） | 对话页顶部「人设」 | 人设 / 提示词 / 管理 三个面板；由 `showTab` 决定是否注册。「提示词」面板在一轮对话结束时自动重新读取，正在编辑人设时不会打断 |
 | `betterSidebar.registerTab` | dsh-better-sidebar 的右侧栏 | 同一套页面挂进侧边栏；由 `showSidebar` 决定注册还是注销，未装该插件时**不注册也不显示开关** |
 | `plugins.bundle.config`（key = 包名 `dsh-agent-persona`） | 插件 → 本插件详情页。「界面与功能」 | 与设置页同一组开关（共用 `persistPrefs` / `savePrefs`），行内状态提示（`role=status`），不出 toast。**它是设置入口被关掉之后的回头路** |
 
-三个座位都在**运行时**注册/注销（切换开关立即生效），决策来自 §6 的镜像。
+四个座位都在**运行时**注册/注销（切换开关立即生效），决策来自 §6 的镜像。
 本插件**不往 `settings.general.item` 注册任何条目**，`test/client-helpers.test.mjs` 有断言守着这一点。
 
 包根的 `icon.svg`（`package.json` 的顶层 `icon` 字段）给插件列表/详情页提供图标；`locale/zh.json` 与
@@ -243,7 +243,7 @@ ctx.effect(() => ctx.tools.guard((execution) => (currentStore().prefs.guard === 
   - 字符串里同时出现**存储文件名或所在目录**与**写入特征**（`>`、`rm`、`mv`、`cp`、`chmod`、`chflags`、
     `truncate`、`sed -i`、`tee`、`write(`、`unlink(`、`rename(`）的，也拒绝 —— 这一条主要面向 bash；
   - 只读命令（`cat`、`head`、`md5`…）不含写入特征，照旧放行。
-- **边界（如实说明）**：这是行为约束，不是安全边界。本机 `danger-full-access` 时仍可绕过（改插件、改 patch、
+- **边界（如实说明）**：这是行为约束，不是安全边界。在 `danger-full-access` 权限下仍可绕过（改插件、改 patch、
   构造不带写入特征的载荷）；shell 那条按**整条命令**判定，所以"读一次并重定向到别处"也会被拒（设计如此）。
   要更结实只能在机器层面做：`chflags uchg`，或者把 DSH 跑在受限沙箱里。
 - 插件**自己**的写入不受影响（宿主直接写文件，不经过工具流水线），你在界面上的保存照旧可用。

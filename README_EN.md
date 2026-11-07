@@ -22,7 +22,7 @@ Requires DSH `0.2.0-rc.2` or newer; this release is tested on `0.2.2-rc.1` (full
 dsh plugin --profile web add dsh-agent-persona
 ```
 
-Then **restart `dsh web` once**. Profile bundles are read at startup, and the plugin registers itself from there.
+Then **restart `dsh web` once**. Profile bundles are read at startup, and the plugin registers itself from there. If a service manager runs the host, restart that service instead (for example `sudo systemctl restart <your-unit>`); don't kill the process and start `dsh web` by hand.
 
 After the restart the settings sidebar has an **Agent 人设** page, and `~/.dsh/dsh-agent-persona/state.json` contains a load heartbeat saying which file was loaded, where personas are stored, and how many there are.
 
@@ -56,7 +56,7 @@ The plugin detail page has a new **界面与功能** (Interface and features) bl
 
 Turning off **在设置左栏显示「Agent 人设」** only hides the page from the settings navigation. The plugin detail page remains, so you can keep editing and turn the entry back on at any time. In the plugin list the display name is **Agent 人设** in Chinese and **Agent Persona** in English; the description comes from `locale/`, and the icon is `icon.svg` at the package root (it does not follow the theme color).
 
-![Plugin detail header: the Agent Persona icon, v0.2.0, and the Chinese description](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/plugin-detail-icon.png)
+![Plugin detail header: the Agent Persona icon, version number, and the Chinese description](https://raw.githubusercontent.com/Awoodwhale/dsh-agent-persona/main/docs/images/plugin-detail-icon.png)
 
 ## Personas: list and editor
 
@@ -85,7 +85,7 @@ With **保存人设版本历史** on, every body save appends a diff to `persona
 Select a session and the top of the view has **人设 / 提示词 / 管理** (persona / prompt / manage):
 
 - **人设**: which persona matched, which rules matched, the rendered body, and an inline editor;
-- **提示词**: the system prompt **actually sent** for this session, with rendered/source toggle, copy, and refresh;
+- **提示词**: the system prompt **actually sent** for this session, with rendered/source toggle, copy, and refresh. It also reloads itself when a turn finishes, so you usually don't need the refresh button — and it won't clobber an editor you have open;
 - **管理**: the same cards as the settings page, for creating, enabling, editing, reordering, duplicating, and deleting in place.
 
 Next to it is a read-only conversation log: it shows only what you actually typed, and plugin-injected content that looks like a user message is collapsed into a one-line notice. Long messages can be expanded individually, and you can jump to the latest one.

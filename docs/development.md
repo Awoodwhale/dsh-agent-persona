@@ -13,11 +13,11 @@
 │   ├── remote.ts           # ⚙ 生成物：客户端 $mount 的描述符清单，勿手改
 │   └── typert.ts           # ⚙ 生成物：同一份面的清单对象，勿手改
 ├── lib/                    # ⚙ 构建产物，不进 git（.gitignore），由 npm run build 产出
-├── test/personas.test.mjs      # 宿主：236 项断言（纯函数 + 源码审计 + 用真实 ctx 驱动的 apply）
-├── test/client-helpers.test.mjs # 客户端：187 项断言（源码审计）+ 生成产物漂移校验
+├── test/personas.test.mjs      # 宿主：276 项断言（纯函数 + 源码审计 + 用真实 ctx 驱动的 apply）
+├── test/client-helpers.test.mjs # 客户端：201 项断言（源码审计）+ 生成产物漂移校验
 ├── scripts/generate-remote.mjs # 生成器：endpoints.ts → remote.ts / typert.ts
 ├── scripts/install.sh|.ps1     # 安装到某个 profile
-├── docs/                   # 架构 / 开发 / 设计决策
+├── docs/                   # 架构 / 开发
 ├── cordis.patch.yml        # bundle patch：插入 loader 行
 ├── tsconfig.json           # host（tsc → lib/）
 ├── tsconfig.client.json    # client（只做类型检查，产出交给 esbuild）
@@ -28,11 +28,11 @@
 npm install
 npm run build         # generate:remote → tsc → esbuild（产出 lib/）
 npm run typecheck     # 两个 tsconfig 都不报错
-npm test              # 236 + 187 条断言，最后一步校验生成产物没有漂移
+npm test              # 276 + 201 条断言，最后一步校验生成产物没有漂移
 npm run generate:remote   # 只重新生成 src/remote.ts 与 src/typert.ts
 ```
 
-**容器里千万不要手改生成产物**：改 `src/endpoints.ts`（加一个方法就加一个名字）后跑 `npm run generate:remote`；
+**仓库里千万不要手改生成产物**：改 `src/endpoints.ts`（加一个方法就加一个名字）后跑 `npm run generate:remote`；
 `npm test` 会重新生成并比对，不一致直接失败。同理，`lib/` 里的任何文件都不是源码。
 
 ## 本地开发接线（免重启迭代）
@@ -52,7 +52,7 @@ npm run generate:remote   # 只重新生成 src/remote.ts 与 src/typert.ts
 > ⚠️ **两者只能选一个**：手写 `insert` 的同时，包又声明 `dsh.bundle.patch`，一旦有任何 `dsh plugin`
 > 操作把包加进 `bundles`，同一个 id 就会被插两次 → 组合无法启动：
 > `duplicate loader entry id "agent-persona" (2 rows)`。
-> 用开发接线时，把 `package.json` 里的 `dsh.bundle` 去掉（发布时再加回来）。
+> 用开发接线时，把 `package.json` 里的 `dsh.bundle.patch` 去掉（发布时再加回来）。
 
 ## 重载语义（实测）
 
@@ -66,6 +66,9 @@ npm run generate:remote   # 只重新生成 src/remote.ts 与 src/typert.ts
 | `exports['./client']` 指向**新文件** / 换文件名 | ❌ client-modules 的 compose 缓存按**它已解析的产物路径**取 stamp，不会重算 |
 | `package.json` 的 `dsh.bundle.patch` 或 `bundles` | 需要**重启** `dsh web` |
 | 打开 dsh-base 的 `id: hmr` 行（`root` 指到本目录） | ❌ 这里实测**没有**生效（改文件后模块未重载），所以本项目不依赖它 |
+
+"重启"这一步别自己 `kill` 掉再手搓 `dsh web`：如果宿主由 systemd 之类的服务托管，用
+`sudo systemctl restart <服务名>`，让它按原来的参数拉起来。
 
 判断"到底哪份代码在跑"：看加载心跳 `$DSH_HOME/dsh-agent-persona/state.json` 的 `loadedModule` 与 `loadedAt`
 （`loadedModule` 会写全路径，所以能看出加载的是开发目录还是 npm 装下来的那份）。
@@ -82,7 +85,8 @@ dsh --profile web --dump-config | grep -c 'id: agent-persona'   # 期望 1
 
 ## 调试
 
-- **host 半边**：日志走宿主 logger，前缀 `[agent-persona]`（在启动 `dsh web` 的终端里看）。
+- **host 半边**：日志走宿主 logger，前缀 `[agent-persona]`（前台跑 `dsh web` 时看终端，服务化时看
+  `journalctl -u <服务名> -f` 或宿主自己的日志文件）。
   加载成功会打印 section 注册与远程命名空间注册两行。
 - **client 半边**：浏览器 devtools。页面组件抛错会被 slot 的错误边界**永久退位**（格子变成
   `data-slot-error`），只在 console 里留一行 `slot entry crashed in 'settings.section':`。

@@ -4,7 +4,7 @@
 #   bash scripts/install.sh                    # published package, profile "web"
 #   bash scripts/install.sh my-profile         # another profile
 #   bash scripts/install.sh web .              # this checkout (development)
-#   bash scripts/install.sh web dsh-agent-persona@0.1.1   # a pinned version
+#   bash scripts/install.sh web dsh-agent-persona@0.2.1   # a pinned version
 set -euo pipefail
 
 PROFILE="${1:-web}"
@@ -56,14 +56,18 @@ Installed into profile "${PROFILE}" (this checkout is v${VERSION}).
 
 dsh.profile.bundles is read at STARTUP, so restart the host now:
 
-    dsh web            # or stop the running one and start it again
+    dsh web                                  # if you started the host by hand
+    sudo systemctl restart <your-unit>       # if systemd runs it (use your unit name)
 
 Then check it loaded:
 
     cat "${STATE}"
-    # 设置 → Agent 人设        the management page
-    # 对话页顶部「人设」        the per-session view
-    # 设置 → 通用设置           carries nothing from this plugin
+    # 设置 → Agent 人设        完整管理页（可在插件页的「界面与功能」里隐藏这个入口）
+    # 对话页顶部「人设」        当前会话的人设 / 实际发送的提示词
+    # 插件 → dsh-agent-persona 图标、README 和「界面与功能」开关；设置入口被隐藏后从这里回去
+    # dsh-better-sidebar 右侧  「Agent 人设」卡片（装了那个插件才有）
+
+The switches on the plugin page and in Settings write the same prefs, so either place works.
 
 Personas live in one file, shared by every profile unless you override config.storePath:
 
