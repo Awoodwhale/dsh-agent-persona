@@ -4,7 +4,9 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.1] - 2026-11-08
+
+这一版修了两个实际会踩到的问题，另外把文档和安装脚本里过时的说法清理了一遍。
 
 ### Fixed
 
@@ -21,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 补了这些情况的测试：独占提示词下追加 / 替换 / 空正文、普通提示词不重复塞、包装还原、宿主报错时原样
   返回，以及「插件装好后确实会包上 `assemble`」这一层。
+
+### Changed
+
+- 文档和安装脚本跟上现状：重启说明补了 systemd 托管的做法，插件详情页「界面与功能」和四个界面入口写
+  清楚了；开发文档里的断言数量、`dsh.bundle.patch` 字段名、远程方法数（16 个）一并改正。
 
 ## [0.2.0] - 2026-11-07
 
