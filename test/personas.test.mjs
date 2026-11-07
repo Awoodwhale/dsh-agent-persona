@@ -36,7 +36,7 @@ const mod = await import(new URL('../lib/index.js', import.meta.url).href).catch
   throw error
 })
 const { collectLastSystemPrompt, sessionPromptFrom } = mod
-const { applyPersonaMode, backupStamp, backupStoreFile, clipMarkdown, collectSessionHistory, historyOptions, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
+const { applyCompletePersona, applyPersonaMode, backupStamp, backupStoreFile, bridgeCompletePrompt, clipMarkdown, collectSessionHistory, historyOptions, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
 
 const WS = '/tmp/ws/web-app'
 const OTHER = '/tmp/ws/docs'
@@ -365,6 +365,65 @@ assert.equal(applyPersonaMode(assembly, { mode: 'replace', deploymentPrefix: und
 assert.equal(applyPersonaMode({ sections: [{ name: 'x', text: 'y' }] }, { mode: 'replace', deploymentPrefix: '' }).sections[0].text, 'y')
 assert.equal(applyPersonaMode(undefined, { mode: 'replace', deploymentPrefix: '' }), undefined)
 
+// ── a preset that owns the whole prompt (`complete: true`) still gets the persona
+const completePrompt = (text) => ({ sections: [{ name: 'deployment:persona-prefix', text }], contexts: [], tools: [], variables: {} })
+assert.equal(applyCompletePersona(completePrompt('You are a helpful assistant.'), { text: 'MY PERSONA', mode: 'append' }).sections[0].text, `You are a helpful assistant.
+
+MY PERSONA`, 'append keeps the complete prompt and puts the persona after it')
+assert.equal(applyCompletePersona(completePrompt('You are a helpful assistant.'), { text: 'MY PERSONA', mode: 'replace' }).sections[0].text, 'MY PERSONA', 'replace takes the complete prompt over')
+assert.equal(applyCompletePersona({ sections: [{ name: 'agent-persona', text: 'MY PERSONA' }] }, { text: 'MY PERSONA', mode: 'append' }).sections.length, 1, 'a prompt that already carries the persona is not folded twice')
+assert.equal(applyCompletePersona(assembly, { text: 'MY PERSONA', mode: 'append' }), assembly, 'more than one section means the waterfall already placed the persona')
+assert.equal(applyCompletePersona(completePrompt('BASE'), { text: '   ', mode: 'append' }).sections[0].text, 'BASE', 'an empty persona changes nothing')
+assert.equal(applyCompletePersona(completePrompt(''), { text: 'MY PERSONA', mode: 'append' }).sections[0].text, 'MY PERSONA', 'an empty complete prompt just receives the persona')
+assert.equal(applyCompletePersona(undefined, { text: 'MY PERSONA', mode: 'append' }), undefined, 'no assembly, nothing to fold')
+assert.equal(completePrompt('BASE').sections[0].text, 'BASE', 'the folded assembly does not mutate its input')
+
+// the bridge reaches the collapsed prompt and leaves no wrapper behind
+const registry = { assemble: async () => completePrompt('BASE'), other: 1 }
+const restore = bridgeCompletePrompt(registry, () => ({ text: 'MY PERSONA', mode: 'append' }))
+assert.equal((await registry.assemble({})).sections[0].text, `BASE
+
+MY PERSONA`, 'assemble() is wrapped')
+restore()
+assert.equal((await registry.assemble({})).sections[0].text, 'BASE', 'disposal restores the original assemble')
+const noPersona = { assemble: async () => completePrompt('BASE') }
+bridgeCompletePrompt(noPersona, () => undefined)
+assert.equal((await noPersona.assemble({})).sections[0].text, 'BASE', 'an unclaimed assembly is handed back untouched')
+const throwing = { assemble: async () => completePrompt('BASE') }
+bridgeCompletePrompt(throwing, () => { throw new Error('boom') }, () => {})
+assert.equal((await throwing.assemble({})).sections[0].text, 'BASE', 'a failing resolver leaves the prompt alone')
+assert.equal(bridgeCompletePrompt(undefined, () => undefined)(), undefined, 'a deployment without the service disposes cleanly')
+
+// trailing whitespace on the complete prompt must not become a blank line before the persona
+assert.equal(applyCompletePersona(completePrompt('BASE\n\n'), { text: 'MY PERSONA', mode: 'append' }).sections[0].text, `BASE
+
+MY PERSONA`, 'trailing whitespace is trimmed before appending')
+assert.equal(applyCompletePersona(completePrompt('  BASE  '), { text: 'MY PERSONA', mode: 'append' }).sections[0].text, `  BASE
+
+MY PERSONA`, 'leading whitespace is left alone')
+
+// a host that refuses to let the service be wrapped costs the feature, not the plugin
+const frozenWarnings = []
+const frozen = {}
+Object.defineProperty(frozen, 'assemble', {
+  value: async () => completePrompt('BASE'),
+  writable: false,
+  configurable: false,
+})
+const frozenRestore = bridgeCompletePrompt(frozen, () => ({ text: 'MY PERSONA', mode: 'append' }), (message) => frozenWarnings.push(String(message)))
+assert.equal(typeof frozenRestore, 'function')
+assert.equal((await frozen.assemble({})).sections[0].text, 'BASE', 'an un-wrappable service still serves the original prompt')
+assert.ok(frozenWarnings.some((message) => /could not wrap assemble/.test(message)), 'and the failure is reported once')
+frozenRestore()
+
+// a disposed bridge must stop folding even when someone else wrapped it and it cannot restore itself
+const layered = { assemble: async () => completePrompt('BASE') }
+const layeredRestore = bridgeCompletePrompt(layered, () => ({ text: 'MY PERSONA', mode: 'append' }))
+const inner = layered.assemble
+layered.assemble = async (context) => inner(context)
+layeredRestore()
+assert.equal((await layered.assemble({})).sections[0].text, 'BASE', 'a disposed bridge stays inert when another wrapper keeps it on the chain')
+
 // ── one workspace/session belongs to one persona: a new claim takes the row over
 const store = { personas: [
   P({ id: 'a', name: '旧人设', targets: [T('workspace', 'exact', WS), T('sessionId', 'prefix', 'keep-')] }),
@@ -405,7 +464,12 @@ const guards = []
 let assembleWaterfall
 const fakeCtx = {
   logger: { info: () => {}, warn: (...args) => warnings.push(String(args[0])) },
-  systemPrompt: { getSectionOrder: () => 0, section: (entry) => { sections.push(entry); return () => {} } },
+  systemPrompt: {
+    getSectionOrder: () => 0,
+    section: (entry) => { sections.push(entry); return () => {} },
+    // Mimics a preset that owns the whole prompt: the registry returns that one section alone.
+    assemble: async () => ({ sections: [{ name: 'deployment:persona-prefix', text: 'PRESET' }], contexts: [], tools: [], variables: {} }),
+  },
   tools: { guard: (fn) => { guards.push(fn); return () => {} } },
   effect: (fn) => fn(),
   on: (name, handler) => {
@@ -423,6 +487,13 @@ assert.equal(section.text({ agent: { session: { header: { id: 'im-bot-1a2b-g3', 
 assert.equal(section.text({ agent: { session: { header: { id: 'session-9', cwd: OTHER } } } }), '', 'an empty persona silences')
 assert.equal(section.text({ agent: { session: { header: { id: 'session-9', cwd: '/tmp/elsewhere' } } } }), '', 'a persona with no targets injects nothing')
 assert.equal(section.text({}), '', 'and an agent-less assembly gets the harness prompt')
+
+// ── apply() itself wraps assemble(): a complete preset still receives the persona
+const collapsed = await fakeCtx.systemPrompt.assemble({ agent: { session: { header: { id: 'im-bot-2', cwd: '/tmp/x' } } } })
+assert.equal(collapsed.sections.length, 1, 'the complete section is still the only section')
+assert.equal(collapsed.sections[0].text, 'PRESET\n\nIM {{model}}', 'and the persona is folded into it')
+const unclaimed = await fakeCtx.systemPrompt.assemble({ agent: { session: { header: { id: 'session-9', cwd: '/tmp/elsewhere' } } } })
+assert.equal(unclaimed.sections[0].text, 'PRESET', 'a prompt no persona claims is handed back untouched')
 
 // ── the store is this plugin's instruction source, so exactly one monotonic guard must protect it
 assert.equal(guards.length, 1, 'the store guard is registered through the effect')

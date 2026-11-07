@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **用「独占提示词」的 Agent 预设时，人设一个字都发不出去。** 这种预设会声明 `complete: true`，DSH 在
+  组装提示词的最后一步会把其他 section 全丢掉，本插件那一节也没了，而且不报错。现在插件在组装结束后
+  看一眼结果：发现只剩预设那一段、人设没进去，就把人设补进去——追加接在后面，替换整段换掉。
+  插件卸载时会把改动还原。
+- 顺手把这层包装写稳了：宿主不让改方法时只跳过这个功能，不影响插件其他部分；插件卸载后即使别的插件
+  也包过一层，这里也不会继续往提示词里塞人设。
+
+### Tests
+
+- 补了这些情况的测试：独占提示词下追加 / 替换 / 空正文、普通提示词不重复塞、包装还原、宿主报错时原样
+  返回，以及「插件装好后确实会包上 `assemble`」这一层。
+
 ## [0.2.0] - 2026-11-07
 
 插件页自己会管配置了，图标、显示名和最新的 DSH 也对上了。

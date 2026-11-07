@@ -133,6 +133,8 @@ Of the four match types, only `完全一致` (exact) normalizes paths (`/a/proje
 
 The body supports `{{model}}` and `{{cwd}}`, substituted with current values at render time. Other `{{...}}` placeholders are removed rather than failing the whole assembly.
 
+One more case worth spelling out: some Agent presets declare `complete: true` on their persona section, meaning "this section is the whole prompt". At the end of assembly DSH throws away every other section, including the one this plugin writes, so the persona looks configured but never reaches the model. The plugin now checks the result after assembly: if only the preset's section is left and the persona is missing, it puts the persona in — appended after it for Append, replacing the whole text for Replace. With such a preset the "someone else's identity wins" rule above no longer applies: that section is the only slot there is.
+
 ## Data and security
 
 ```

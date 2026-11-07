@@ -107,6 +107,27 @@ src/client.ts ──esbuild --bundle──▶ lib/client.js  ◀─────�
 **变量**：正文里的 `{{model}}` / `{{cwd}}` 由提示词注册表在渲染时解析；其它 `{{…}}` 会在注入前被去括号
 （未注册的变量会让整个组装**抛错**，所以必须在插件侧消毒，见 `sanitizePersona`）。
 
+### 3.1 预设声明 `complete: true` 时
+
+Agent 预设的人设段可以带 `complete: true`，意思是这一节就是完整提示词。宿主 `assemble()` 的流程是：
+
+1. 先把所有 section 收集齐、求值，其中有 `complete` 标记的那一节单独快照一份；
+2. 照常派发 `system-prompt/assemble` 瀑布流（本插件的监听器也在这里跑）；
+3. 瀑布流返回后，如果存在 complete 段，**用第 1 步的快照覆盖 `sections`**，其它 section 全丢。
+
+所以在这种预设下，本插件通过瀑布流写进去的 section 到不了模型，而且不会有任何报错。处理办法是在插件
+`apply()` 里包一层 `assemble()`：先调原方法拿到最终 assembly，如果只剩一节、又不是本插件自己的 section
+（说明我们的 section 被 complete 覆盖了），就把命中的那条人设折进这一节——`append` 接在原文后面，
+`replace` 整段换成人设。插件卸载时把这层包装还原。
+
+几个边界：
+
+- 这个判断只能靠"只剩一节"来识别 complete 段：宿主快照里不带 `complete` 标记。正常情况下提示词至少有
+  harness identity 等多节，所以现在够用；将来若有别的瀑布流把 section 收敛到一节，需要重新评估。
+- 包装会改服务实例上的方法。宿主不让改（冻结/只读）时只跳过这个功能并告警，插件其余部分照常工作。
+- 卸载后包装可能因为别的插件又包了一层而没法从链上摘掉，所以包装里带一个 `active` 标记：插件一旦卸载，
+  它就不再往里折人设，只是原样透传。
+
 ## 4. 远程服务契约
 
 host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `super(ctx, 'agentPersona')` ——
