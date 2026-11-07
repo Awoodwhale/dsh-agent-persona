@@ -1001,7 +1001,13 @@ const readPrefs = () => {
        * session it is showing; otherwise it keeps rendering the one it was first opened for.
        */
       componentDidUpdate(previous) {
-        if (this.sessionId() !== sessionIdOf(previous)) void this.load()
+        if (this.sessionId() !== sessionIdOf(previous)) {
+          void this.load()
+          return
+        }
+        // A finished turn may have produced a new system prompt while the tab stayed open. Reload so
+        // 「提示词」 is current; skip while the inline editor is open so typing is never clobbered.
+        if (previous.running === true && this.props.running === false && this.state.editing !== true) void this.load()
       }
 
       sessionId() {
@@ -1286,6 +1292,16 @@ const readPrefs = () => {
       }
     }
 
+
+    /**
+     * The conversation tab receives the session snapshot hooks; the sidebar card does not. Subscribe
+     * here so a turn that finishes while 「提示词」 is open can refresh itself instead of showing the
+     * previous turn's prompt until the reader reloads the page.
+     */
+    const PersonaViewLive = (props) => {
+      const running = props.useSession((snapshot) => snapshot?.running === true)
+      return h(PersonaView, { ...props, running })
+    }
 
     const dotState = (persona) => {
       if (persona === undefined) return 'off'
@@ -3406,7 +3422,7 @@ const since = (timestamp) => {
           id: 'agent-persona',
           order: 30,
           label: () => '人设',
-        }, PersonaView))
+        }, PersonaViewLive))
       }
       const dropTabSeat = () => {
         if (!tabSeatMounted) return

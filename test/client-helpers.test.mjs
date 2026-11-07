@@ -111,7 +111,7 @@ assert.ok(source.includes("title: () => 'Agent 人设'"), 'with our own title')
 // scope also changes without remounting, so the view has to follow it.
 assert.ok(source.includes('props?.scope?.sessionId'), 'the session id is read from the sidebar scope too')
 assert.ok(source.includes('componentDidUpdate(previous) {'), 'and the view follows a scope change')
-assert.ok(source.includes('if (this.sessionId() !== sessionIdOf(previous)) void this.load()'), 'by reloading for the new session')
+assert.ok(source.includes('if (this.sessionId() !== sessionIdOf(previous)) {'), 'by reloading for the new session')
 assert.equal(source.includes("ctx.inject(['sidebarRightTabs']"), false, 'the unusable path is gone')
 assert.ok(source.includes('id: NS,'), 'registered under our own id (registerTab takes no kind)')
 for (const gone of ['sidebar.footer.action', 'shell.overlay', 'PersonaFooterAction', 'PersonaOverlay']) {
@@ -402,5 +402,15 @@ assert.equal(prefStatus({}), '已保存', 'an unrecognised patch still reports s
 assert.ok(source.includes('key: `st-${String(state.statusSeq)}`'), 'the toast is keyed on the status sequence')
 assert.ok(source.includes('this.statusSeq += 1'), 'which every status write advances')
 assert.ok(source.includes("'status' in patch"), 'including writes that repeat the sentence already on screen')
+
+// ── a finished turn refreshes 「提示词」 while the tab stays open
+// The view only reloaded when the session id changed, so a system prompt produced by the newest turn
+// stayed invisible (「提示词」 showed the previous one) until the reader reloaded the page or hit 刷新.
+// The conversation tab now subscribes to the session snapshot and reloads when a running turn stops.
+assert.ok(source.includes('props.useSession((snapshot) => snapshot?.running === true)'), 'the conversation view reads the running flag from the session snapshot')
+assert.ok(source.includes('const PersonaViewLive = (props) => {'), 'through a hook wrapper around the class component')
+assert.ok(source.includes('previous.running === true && this.props.running === false'), 'and reloads when a turn finishes')
+assert.ok(source.includes('this.state.editing !== true) void this.load()'), 'without clobbering an open editor')
+assert.ok(source.includes('}, PersonaViewLive))'), 'the conversation tab registers the live wrapper, not the bare class')
 
 console.log(JSON.stringify({ ok: true, clientChecks: assertions }))
