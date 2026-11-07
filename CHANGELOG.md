@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-11-08
+
+这一版和 0.2.1 的功能完全一样，只是文档和脚本里不再写某个具体部署环境的服务名、路径这类信息，统一改成
+通用写法（`systemctl restart <你的服务名>` 之类）。npm 上的 0.2.1 里还带着那些字样，所以用 0.2.2 顶掉。
+
 ## [0.2.1] - 2026-11-08
 
 这一版修了两个实际会踩到的问题，另外把文档和安装脚本里过时的说法清理了一遍。
