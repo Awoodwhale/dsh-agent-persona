@@ -1,12 +1,12 @@
 # Install dsh-agent-persona into a DSH profile (Windows).
 #
-#   pwsh -File scripts/install.ps1
+#   pwsh -File scripts/install.ps1                    # latest stable package
 #   pwsh -File scripts/install.ps1 -Profile my-profile
 #   pwsh -File scripts/install.ps1 -Profile web -Target .
-#   pwsh -File scripts/install.ps1 -Profile web -Target dsh-agent-persona@0.2.1
+#   pwsh -File scripts/install.ps1 -Profile web -Target 'dsh-agent-persona@<version>'
 param(
   [string]$Profile = "web",
-  [string]$Target  = "dsh-agent-persona"
+  [string]$Target  = "dsh-agent-persona@latest"
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,15 +46,12 @@ Write-Host "==> dsh plugin --profile $Profile add $Target"
 & dsh plugin --profile $Profile add $Target
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-$Version = "?"
-try { $Version = (Get-Content (Join-Path $PluginDir "package.json") -Raw | ConvertFrom-Json).version } catch { }
-
 $Home2 = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE ".dsh" }
 $State = Join-Path $Home2 "dsh-agent-persona/state.json"
 
 Write-Host @"
 
-Installed into profile "$Profile" (this checkout is v$Version).
+Installed "$Target" into profile "$Profile".
 
 dsh.profile.bundles is read at STARTUP, so restart the host now:
 

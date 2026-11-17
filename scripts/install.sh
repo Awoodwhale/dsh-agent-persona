@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Install dsh-agent-persona into a DSH profile.
 #
-#   bash scripts/install.sh                    # published package, profile "web"
+#   bash scripts/install.sh                    # latest stable package, profile "web"
 #   bash scripts/install.sh my-profile         # another profile
 #   bash scripts/install.sh web .              # this checkout (development)
-#   bash scripts/install.sh web dsh-agent-persona@0.2.1   # a pinned version
+#   bash scripts/install.sh web 'dsh-agent-persona@<version>'  # an explicit version
 set -euo pipefail
 
 PROFILE="${1:-web}"
-TARGET="${2:-dsh-agent-persona}"
+TARGET="${2:-dsh-agent-persona@latest}"
 PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if ! command -v dsh >/dev/null 2>&1; then
@@ -47,12 +47,11 @@ fi
 echo "==> dsh plugin --profile ${PROFILE} add ${TARGET}"
 dsh plugin --profile "${PROFILE}" add "${TARGET}"
 
-VERSION="$(node -e "try{process.stdout.write(require('${PLUGIN_DIR}/package.json').version)}catch{process.stdout.write('?')}" 2>/dev/null || echo '?')"
 STATE="${DSH_HOME:-$HOME/.dsh}/dsh-agent-persona/state.json"
 
 cat <<TIP
 
-Installed into profile "${PROFILE}" (this checkout is v${VERSION}).
+Installed "${TARGET}" into profile "${PROFILE}".
 
 dsh.profile.bundles is read at STARTUP, so restart the host now:
 
