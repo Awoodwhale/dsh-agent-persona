@@ -4,6 +4,27 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-11-17
+
+### Fixed
+
+- **已对话的活动会话切换人设后，真实 system prompt 自动同步。** 保存人设后检测受影响的会话，等待 Agent 空闲，在互斥 maintenance 中重新组装并替换提示词，无需再发送消息，也不调用模型。修复 Cordis `agents` 服务未声明注入导致刷新未执行的问题。
+- 提示词刷新写入完整的维护 turn/step，保持 v4 日志可恢复，并同步 Agent 轮次计数，避免下一次正常对话重号；等待持久化完成，写入失败时闭合边界并记录告警。
+
+### Changed
+
+- Unix 和 Windows 安装脚本默认显式安装 `dsh-agent-persona@latest`，每次运行解析 npm 当前稳定版，无需随发布修改脚本；仍支持显式版本和本地源码安装。安装提示展示实际请求的目标，不再把脚本所在源码的版本当作 npm 安装结果。
+- 提示词面板显示会话最新记录及同步状态，编辑器说明保存后自动刷新。
+
+### Tests
+
+- 补充旧人设切换、运行中连续保存、maintenance 等待与抢占、投影/写入/持久化失败重试及轮次连续的回归覆盖。
+- 在本机 DSH `0.2.2-rc.1` 的隔离 profile 中通过 bsk 验证：旧人设完成真实对话后切换人设、再次修改正文，均自动替换真实 system prompt；保存未增加用户消息、助手回复或请求记录。后续对话及重启恢复正常，完整 v4 日志通过宿主恢复校验。
+
+### Compatibility
+
+- 自动刷新依赖 DSH `0.2.2-rc.1` 的内部 prompt projection 和 maintenance 状态，升级宿主需复测。每次提示词变化增加一个维护 turn/step，但不创建用户消息或调用模型；没有活动 Agent 或本进程尚未组装过提示词的历史会话不主动刷新，外部直接编辑人设文件不触发维护刷新。
+
 ## [0.2.2] - 2026-11-08
 
 这一版和 0.2.1 的功能完全一样，只是文档和脚本里不再写某个具体部署环境的服务名、路径这类信息，统一改成

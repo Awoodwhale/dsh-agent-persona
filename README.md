@@ -12,19 +12,19 @@
 
 同一个 DSH 里常常同时跑着好几摊活。写前端时，你希望 agent 直接给改法、少客套；写文档时，你希望它先把结构讲清楚；盯告警的会话里，你希望它动手前先确认。这些差别不方便全塞进 `AGENTS.md`——工作区指令进的是 user 角色消息，模型可以不完全照办。
 
-这个插件把人设写成 **system prompt 的一个 section**（section 名 `agent-persona`，紧跟在 DSH 自带的身份行之后），再按工作区路径或会话 id 分发。一个位置只属于一条人设，越具体的规则越优先；改完之后，下一条消息就按新人设走。
+这个插件把人设写成 **system prompt 的一个 section**（section 名 `agent-persona`，紧跟在 DSH 自带的身份行之后），再按工作区路径或会话 id 分发。一个位置只属于一条人设，越具体的规则越优先。保存后，本进程已组装过提示词的活动会话会在空闲时自动刷新真实 system prompt，无需发送消息。刷新增加一个维护轮次，不调用模型；当前适配并实测 DSH `0.2.2-rc.1`，升级宿主需复测，详见[兼容说明](docs/architecture.md#32-保存人设后自动刷新当前会话)。
 
 ## 安装
 
 要求 DSH `0.2.0-rc.2` 及以上；当前版本在 `0.2.2-rc.1` 上实测通过（完整兼容列表见下文）。先在插件市场（如 dshmarket）或命令行装进你要用的 profile：
 
 ```bash
-dsh plugin --profile web add dsh-agent-persona
+dsh plugin --profile web add dsh-agent-persona@latest
 ```
 
 装完**重启一次 `dsh web`**。profile 的 bundles 只在启动时读取，插件行就是从这里挂进去的。如果宿主由 systemd 之类的服务托管，用 `sudo systemctl restart <你的服务名>` 重启，别自己 kill 掉进程再手起。重启后设置左栏会多出 **Agent 人设**；`~/.dsh/dsh-agent-persona/state.json` 里也有加载心跳，写明了加载的文件、人设存哪、一共几条。
 
-升级、卸载同样是 `dsh plugin --profile web update|remove dsh-agent-persona`，重启一次后生效。人设文件不会跟着删，也不会被覆盖。仓库里另有本地安装脚本：`bash scripts/install.sh`（Windows 用 `scripts/install.ps1`）。
+升级、卸载同样是 `dsh plugin --profile web update|remove dsh-agent-persona`，重启一次后生效。人设文件不会跟着删，也不会被覆盖。仓库里另有本地安装脚本：`bash scripts/install.sh`（Windows 用 `scripts/install.ps1`），默认安装 npm `latest` 指向的稳定版，之后发布新版本无需修改脚本；也可显式传入版本或本地源码路径。
 
 ## 三分钟上手
 

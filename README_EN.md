@@ -12,21 +12,21 @@ Different system prompt personas for different **workspaces** and **sessions**.
 
 One DSH install usually runs several kinds of work at once. While you're writing frontend code, you want the agent to give you the edit and skip the pleasantries. While you're writing docs, you want structure first. In a session where you're watching alerts, you want it to confirm before touching anything. Stuffing all of that into `AGENTS.md` doesn't work well — workspace instructions arrive as a user message, and the model is free to treat them as advice.
 
-This plugin writes a persona as **a section of the system prompt** (section name `agent-persona`, right after DSH's built-in identity line) and dispatches it by workspace path or session id. One location belongs to at most one persona, and the more specific rule wins. After you save, the next message uses the new persona.
+This plugin writes a persona as **a section of the system prompt** (section name `agent-persona`, right after DSH's built-in identity line) and dispatches it by workspace path or session id. One location belongs to at most one persona, and the more specific rule wins. After saving, active sessions whose prompts have been assembled in this process automatically refresh their actual system prompt when idle, without sending a message. A refresh adds one maintenance turn without calling the model. This path is adapted and tested on DSH `0.2.2-rc.1`; revalidate after host upgrades. See the [compatibility details](docs/architecture.md#32-保存人设后自动刷新当前会话).
 
 ## Install
 
 Requires DSH `0.2.0-rc.2` or newer; this release is tested on `0.2.2-rc.1` (full list below). Install it into the profile you use, either from a plugin market such as dshmarket or from the CLI:
 
 ```bash
-dsh plugin --profile web add dsh-agent-persona
+dsh plugin --profile web add dsh-agent-persona@latest
 ```
 
 Then **restart `dsh web` once**. Profile bundles are read at startup, and the plugin registers itself from there. If a service manager runs the host, restart that service instead (for example `sudo systemctl restart <your-unit>`); don't kill the process and start `dsh web` by hand.
 
 After the restart the settings sidebar has an **Agent 人设** page, and `~/.dsh/dsh-agent-persona/state.json` contains a load heartbeat saying which file was loaded, where personas are stored, and how many there are.
 
-Upgrade or remove with `dsh plugin --profile web update|remove dsh-agent-persona`, then restart again. Your persona file is not deleted or overwritten. There are also local install scripts: `bash scripts/install.sh` on Unix, `scripts/install.ps1` on Windows.
+Upgrade or remove with `dsh plugin --profile web update|remove dsh-agent-persona`, then restart again. Your persona file is not deleted or overwritten. There are also local install scripts: `bash scripts/install.sh` on Unix, `scripts/install.ps1` on Windows. They default to the stable package selected by npm's `latest` tag, so future releases require no script edits. Explicit versions and local checkout paths remain supported.
 
 ## Three-minute setup
 
