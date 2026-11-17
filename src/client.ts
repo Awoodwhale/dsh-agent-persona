@@ -1096,6 +1096,7 @@ const readPrefs = () => {
             || (draft.fallback === true) !== (persona.fallback === true))
         const matched = data?.matchedBy ?? []
         const prompt = data?.prompt ?? null
+        const promptSync = data?.promptSync?.status
 
         const TABS = [
           { id: 'persona', label: '人设' },
@@ -1247,7 +1248,7 @@ const readPrefs = () => {
                     }),
                   ]),
                   h('div', { className: 'wsp-form-actions', key: 'a' }, [
-                    h('span', { className: 'wsp-card-meta', key: 'c' }, `${draft.text.length} 字 · 保存后下一个请求生效`),
+                    h('span', { className: 'wsp-card-meta', key: 'c' }, `${draft.text.length} 字 · 保存后自动刷新会话提示词`),
                     h('span', { className: 'wsp-grow', key: 'g' }),
                     h(Button, { key: 'cancel', variant: 'outline', size: 'sm', disabled: busy !== '', onClick: () => this.setState({ editing: false }) }, '放弃修改'),
                     h(Button, {
@@ -1270,8 +1271,16 @@ const readPrefs = () => {
           panel = h('div', { className: 'wsp-panel-area', key: 'prompt' }, card({
             key: 'c',
             title: 'System Prompt',
-            meta: prompt === null ? '还没有记录' : `${prompt.length} 字 · 最近一次实际发送`,
-            note: prompt === null ? '这条会话还没有发起过请求，因此没有 system prompt 记录。' : undefined,
+            meta: prompt === null
+              ? '还没有记录'
+              : `${prompt.length} 字 · 会话最新记录${promptSync === 'pending' ? ' · 正在刷新' : ''}`,
+            note: prompt === null
+              ? '这条会话还没有发起过请求，因此没有 system prompt 记录。'
+              : promptSync === 'pending'
+                ? '人设已保存，宿主正在刷新 system prompt；运行中的会话会在空闲后自动完成刷新。'
+                : promptSync === 'unknown'
+                  ? '这里显示会话最近记录的 system prompt；当前进程没有对应的人设组装记录。'
+                  : '这里显示会话最近记录的 system prompt。保存或切换人设后，宿主会自动重新组装，无需发送消息。',
             actions: prompt === null ? [] : [
               h('div', { className: 'wsp-switch', key: 'sw' }, [
                 h('button', { key: 'r', type: 'button', className: promptView === 'render' ? 'wsp-switch-item wsp-switch-on' : 'wsp-switch-item', onClick: () => this.setState({ promptView: 'render' }) }, '渲染'),

@@ -229,6 +229,10 @@ const viewAt2 = source.indexOf('class PersonaView')
 const viewBody2 = source.slice(viewAt2, source.indexOf('class ', viewAt2 + 10))
 assert.ok(/fallback: data\.persona\.fallback === true/.test(viewBody2), "the view's draft carries the flag")
 assert.ok(/draft\.fallback === true\) !== \(persona\.fallback === true\)/.test(viewBody2), 'and its dirty check compares it')
+// 保存后由宿主刷新提示词，不再要求用户额外发送消息。
+assert.ok(source.includes("const promptSync = data?.promptSync?.status"), 'the view reads the host sync state')
+assert.ok(source.includes('运行中的会话会在空闲后自动完成刷新'), 'pending maintenance is explained')
+assert.ok(source.includes('会话最新记录'), 'a refreshed prompt is not labelled as already sent')
 
 
 // ── the view has patch(), the settings component has patchDraft(); calling the other one throws

@@ -128,6 +128,21 @@ Agent 预设的人设段可以带 `complete: true`，意思是这一节就是完
 - 卸载后包装可能因为别的插件又包了一层而没法从链上摘掉，所以包装里带一个 `active` 标记：插件一旦卸载，
   它就不再往里折人设，只是原样透传。
 
+### 3.2 保存人设后自动刷新当前会话
+
+DSH 在每个 Agent step 的 `preStep()` 重新调用 `systemPrompt.assemble()`，动态 section 不会在会话创建时永久缓存。但保存人设本身不启动 step，因此仅更新存储并不能立即更新会话已有的 system prompt。
+
+插件在统一的 `commit(next)` 完成持久化后，检查本进程曾经组装过的会话。如果新匹配结果的 id、正文或 append/replace 模式发生变化，就为该会话串行排队刷新：
+
+1. 显式注入 `agents`，通过 `ctx.get('agents')` 查找 registry，再用 `agents.get(sessionId)` 获取活动 Agent。Cordis 的属性访问会校验注入依赖，不能先读取未声明的属性再用 `??` 兜底。先等待 `whenIdle()` 再重新获取 Agent；DSH 的 maintenance 对外也显示 `idle`，所以不能只根据 `status` 判断是否可以刷新。
+2. 使用 `runMaintenance()` 取得互斥维护权，校验内部 maintenance 状态与 session turn boundary 一致，再重新解析工具集、组装并渲染 system prompt。渲染遵循 DSH 的严格变量插值规则，保留 Agent 自身的服务作用域。
+3. 通过 Agent 的 system prompt projection 生成 surface 更新。Session format v4 要求 `system/message` 属于打开的 turn/step，因此发生变化时记录完整的 `turn/start → step/start → system/message → step/end → turn/end` 维护轮次，同时更新当前 maintenance 对象的 `lastTurn`，让宿主恢复 idle 后的下一轮编号连续。异常路径也闭合已打开的边界。
+4. 等待 `sessions.flush(session)` 确认持久化成功，释放工具集；下一次正常模型请求按当前存储再次组装。已有 system prompt 在模型可见的 surface 上被替换，历史事件日志仍然保留。
+
+刷新会增加一个底层维护 turn/step，不写入 `user/message`，不调用模型，也不产生 `request/header`。提示词没有变化时不追加维护轮次。连续保存按照同一会话串行执行，刷新时读取最新存储；如果 Agent 恰好在 maintenance 预留前开始运行，则等待它空闲后重试一次。保存响应与后台刷新完成是两个时点。
+
+兼容边界：当前 DSH 没有公开的 prompt refresh API，这条路径依赖 0.2.2-rc.1 Agent runtime 的内部 `systemPrompt.project()` 和 `phase` maintenance 对象。结构或边界不符合预期时，在写入任何维护事件前抛错，不能绕过日志校验。升级宿主必须复测保存、日志恢复和后续正常对话。能力缺失或刷新失败会记录告警；存储已经保存，后续正常请求仍会重新组装。没有活动 Agent 的历史会话，以及本进程尚未组装过的会话，不会被主动改写；直接从外部编辑文件仍在下一次存储读取时被发现，不会自行触发 maintenance。
+
 ## 4. 远程服务契约
 
 host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `super(ctx, 'agentPersona')` ——
@@ -149,7 +164,7 @@ host 侧 `WorkspacePersonaService extends TypertRemoteService`，构造时 `supe
 | `duplicatePersona` | `{ id }` | 视图（副本**默认停用**） |
 | `listTargets` | — | `{ workspaces: [{ path, title, sessionCount }], sessions: [{ id, title?, cwd, createdAt }] }`（设置页的下拉框数据，按时间倒序，最多 200 条） |
 | `sessionHistory` | `{ id, offset?, events?, maxChars? }` | 该会话的消息（供「看这条会话」弹窗与单条 `展开全文`） |
-| `sessionPrompt` | `{ id }` | `{ available, cwd, reason, matchedBy, persona, prompt }` —— 对话页「人设 / 提示词」两个面板的数据 |
+| `sessionPrompt` | `{ id }` | `{ available, cwd, reason, matchedBy, persona, prompt, promptSync }` —— `prompt` 是最近记录的 system prompt，可能由 maintenance 刷新；`promptSync` 提供本进程组装记录与当前匹配的比较结果 |
 | `tunePersona` | `{ mode, instruction, text, provider?, model? }` | `{ text, mode, provider, model, source }` |
 | `listModels` | — | `{ models[], hostDefault, configured }` |
 | `savePrefs` | `{ autosave?, showTab?, showSidebar?, showSettings?, guard?, history? }` | 视图（部分合并，未提及的字段保留） |

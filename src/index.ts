@@ -81,7 +81,7 @@ export const Config = Schema.object({
   tuneModel: Schema.string().default(''),
 })
 
-export const inject = ['systemPrompt', 'tools']
+export const inject = ['systemPrompt', 'tools', 'agents', 'sessions']
 
 const DSH_HOME = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 /** Everything this plugin writes lives under one directory of its own. */
@@ -939,6 +939,11 @@ export const subjectOf = (agent) => {
   return { cwd, sessionId: typeof id === 'string' ? id : undefined }
 }
 
+/** The parts of a persona that can change the rendered system prompt. */
+export const personaFingerprint = (persona) => persona === undefined
+  ? ''
+  : JSON.stringify({ id: persona.id ?? '', mode: persona.mode ?? 'append', text: persona.text ?? '' })
+
 /** The persona text one assembly should carry, or `''` for the stock prompt. */
 export const personaTextFor = (personas, agent, warn = () => {}) => {
   // An agent-less assembly has no cwd/session, so no persona with targets can
@@ -1292,6 +1297,113 @@ export const bridgeCompletePrompt = (systemPrompt, readPersona, warn = () => {})
   }
 }
 
+const PROMPT_VARIABLE_NAME = /^[a-z][a-z0-9_]*$/
+const PROMPT_VARIABLE_GROUP = /^\{\{([^{}]*)\}\}/
+
+/** 按 DSH 的严格插值规则渲染 assembly，避免导入未声明的间接依赖。 */
+export const renderPromptForRefresh = (assembly) => {
+  const interpolate = (section) => {
+    const text = typeof section?.text === 'string' ? section.text : ''
+    const variables = assembly?.variables ?? {}
+    let result = ''
+    let last = 0
+    for (let open = text.indexOf('{{'); open >= 0; open = text.indexOf('{{', last)) {
+      const group = PROMPT_VARIABLE_GROUP.exec(text.slice(open))
+      if (group === null) {
+        if (text.indexOf('}}', open + 2) >= 0) throw new Error(`人设刷新遇到格式错误的 prompt variable，section="${section?.name ?? ''}"`)
+        result += text.slice(last, open + 2)
+        last = open + 2
+        continue
+      }
+      const name = group[0].slice(2, -2)
+      if (!PROMPT_VARIABLE_NAME.test(name)) throw new Error(`人设刷新遇到非法 prompt variable "{{${name}}}"`)
+      if (!Object.hasOwn(variables, name)) throw new Error(`人设刷新缺少 prompt variable "{{${name}}}"`)
+      if (variables[name] === undefined) throw new Error(`人设刷新中的 prompt variable "{{${name}}}" 没有值`)
+      result += text.slice(last, open) + variables[name]
+      last = open + group[0].length
+    }
+    return result + text.slice(last)
+  }
+  return (assembly?.sections ?? [])
+    .map((section) => section?.interpolate === false ? section.text : interpolate(section))
+    .filter((text) => typeof text === 'string' && text.length > 0)
+    .join('\n\n')
+}
+
+/**
+ * 在互斥 maintenance 中记录完整的提示词维护轮次，不写用户消息或调用模型。
+ * DSH 0.2.2-rc.1 未公开刷新 API，依赖内部 projection 和 maintenance.lastTurn；升级宿主需复测。
+ */
+export const refreshAgentPrompt = async (ctx, agent) => {
+  const scopedContext = agent?.ctx ?? ctx
+  const systemPrompt = scopedContext.get?.('systemPrompt') ?? scopedContext.systemPrompt
+  const tools = scopedContext.get?.('tools') ?? scopedContext.tools
+  const projection = agent?.systemPrompt
+  const session = agent?.session
+  const selection = agent?.model?.current?.()
+  if (typeof agent?.runMaintenance !== 'function') throw new Error(`session "${agent?.id ?? ''}" 不支持 prompt maintenance 刷新`)
+  if (typeof systemPrompt?.assemble !== 'function' || typeof tools?.resolve !== 'function') throw new Error(`session "${agent?.id ?? ''}" 缺少 prompt 刷新所需的 DSH 服务`)
+  if (typeof projection?.project !== 'function' || typeof session?.append !== 'function') throw new Error(`session "${agent?.id ?? ''}" 缺少 prompt projection 能力`)
+  if (selection === undefined) throw new Error(`session "${agent?.id ?? ''}" 没有可用的 provider/model`)
+
+  const agents = ctx.get?.('agents') ?? ctx.agents
+  const sessions = scopedContext.get?.('sessions') ?? scopedContext.sessions
+  if (typeof agents?.turnBoundaryOf !== 'function' || typeof sessions?.flush !== 'function') {
+    throw new Error(`session "${agent.id}" 缺少维护轮次边界或持久化能力`)
+  }
+
+  return agent.runMaintenance(async (signal) => {
+    const maintenance = agent.phase
+    const boundary = agents.turnBoundaryOf(session)
+    // 必须在写入前确认内部结构及日志边界，避免不兼容的宿主留下无法恢复的事件。
+    if (maintenance?.kind !== 'maintenance' || !Number.isInteger(maintenance.lastTurn)
+      || maintenance.lastTurn < 0 || maintenance.lastTurn !== boundary?.lastTurn
+      || boundary.openTurnStartSeq !== null) {
+      throw new Error(`session "${agent.id}" 不支持安全的提示词维护轮次`)
+    }
+    const toolSet = await tools.resolve({ agent, modelSelection: selection, signal })
+    try {
+      const assembly = await systemPrompt.assemble({
+        agent,
+        scope: agent,
+        signal,
+        modelSelection: selection,
+        toolSet,
+      })
+      signal.throwIfAborted()
+      const renderedPrompt = renderPromptForRefresh(assembly)
+      const commits = projection.project(renderedPrompt, { inHistory: false, startsSeries: true })
+      if (commits.length > 0) {
+        const turn = boundary.lastTurn + 1
+        session.append('turn/start', { turn })
+        // runMaintenance 的 finally 会用这个对象恢复 idle；同步计数以免下一次对话重复 turn。
+        maintenance.lastTurn = turn
+        let stepStarted = false
+        let reason = { kind: 'completed' }
+        try {
+          session.append('step/start', { turn, step: 1 })
+          stepStarted = true
+          for (const { message, intent } of commits) session.append('system/message', { turn, step: 1, message }, intent)
+        } catch (error) {
+          reason = { kind: 'error', error: { message: error instanceof Error ? error.message : String(error), code: 'UNKNOWN' } }
+          throw error
+        } finally {
+          try {
+            if (stepStarted) session.append('step/end', { turn, step: 1 })
+          } finally {
+            session.append('turn/end', { turn, reason })
+          }
+        }
+      }
+      // append 只提交内存事件，必须等待持久化成功才能报告同步完成。
+      await sessions.flush(session)
+      return { changed: commits.length > 0, prompt: renderedPrompt }
+    } finally {
+      toolSet?.dispose?.()
+    }
+  })
+}
+
 /** Read one event's plain text out of the shapes DSH session logs use. */
 const eventText = (event) => {
   const parts = []
@@ -1385,11 +1497,20 @@ export const collectLastSystemPrompt = async (ctx, id) => {
  * @param ctx - the plugin context.
  * @param id - the session id.
  * @param personas - the stored personas.
+ * @param options.appliedPersona - the last persona selected by a real prompt assembly in this process.
  * @returns the view payload.
  */
-export const sessionPromptFrom = async (ctx, id, personas) => {
+export const sessionPromptFrom = async (ctx, id, personas, options = {}) => {
   const sessionId = typeof id === 'string' ? id : ''
-  if (sessionId === '') return { id: '', available: false, persona: null, prompt: null, reason: 'none', matchedBy: [] }
+  if (sessionId === '') return {
+    id: '',
+    available: false,
+    persona: null,
+    prompt: null,
+    promptSync: { status: 'unknown', appliedPersonaId: null, currentPersonaId: null },
+    reason: 'none',
+    matchedBy: [],
+  }
   let cwd
   try {
     const rows = (await ctx.get('sessionPersistence')?.list?.()) ?? []
@@ -1400,6 +1521,15 @@ export const sessionPromptFrom = async (ctx, id, personas) => {
     /* a session without a readable list is still worth showing */
   }
   const picked = resolvePersona(personas ?? [], { cwd, sessionId })
+  const currentPersonaId = picked.persona?.id ?? null
+  const applied = options?.appliedPersona
+  const promptSync = applied?.known !== true
+    ? { status: 'unknown', appliedPersonaId: null, currentPersonaId }
+    : {
+      status: applied.fingerprint === personaFingerprint(picked.persona) ? 'synced' : 'pending',
+      appliedPersonaId: applied.id ?? null,
+      currentPersonaId,
+    }
   return {
     id: sessionId,
     available: true,
@@ -1416,6 +1546,7 @@ export const sessionPromptFrom = async (ctx, id, personas) => {
       targets: (picked.persona.targets ?? []).map((target) => ({ kind: target.kind, match: target.match, value: target.value })),
     },
     prompt: await collectLastSystemPrompt(ctx, sessionId),
+    promptSync,
   }
 }
 
@@ -1821,6 +1952,73 @@ export function apply(ctx, config = {}) {
   }
   const currentStore = () => (storeStamp === stampOf() ? store : reload())
 
+  // 记录本进程组装过的会话及其匹配依据，保存后只刷新实际受影响的活动 Agent。
+  const lastAppliedPersonas = new Map()
+  const personaForAssembly = (agent) => {
+    const subject = subjectOf(agent)
+    const picked = resolvePersona(currentStore().personas, subject)
+    if (subject.sessionId !== undefined) {
+      lastAppliedPersonas.set(subject.sessionId, {
+        known: true,
+        id: picked.persona?.id ?? null,
+        fingerprint: personaFingerprint(picked.persona),
+        subject,
+      })
+    }
+    return picked.persona
+  }
+  const appliedPersonaFor = (sessionId) => lastAppliedPersonas.get(sessionId) ?? { known: false }
+
+  // Cordis 的属性读取会校验 inject，不能让抛错的 getter 截断服务查找。
+  const agentRegistry = () => ctx.get?.('agents') ?? ctx.agents
+  const refreshChains = new Map()
+  const refreshActiveSessionPrompt = async (sessionId) => {
+    let agent = agentRegistry()?.get?.(sessionId)
+    if (agent === undefined) return false
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      // DSH 的 maintenance 对外也显示 idle，必须等待所有活动结束。
+      await agent.whenIdle()
+      const idleAgent = agent
+      agent = agentRegistry()?.get?.(sessionId)
+      if (agent === undefined) return false
+      if (agent !== idleAgent) await agent.whenIdle()
+      const applied = lastAppliedPersonas.get(sessionId)
+      try {
+        await refreshAgentPrompt(ctx, agent)
+        return true
+      } catch (error) {
+        // assembly 可能已经记录新人设；投影失败时保留原快照，以便再次保存时重试。
+        if (applied !== undefined) lastAppliedPersonas.set(sessionId, applied)
+        // whenIdle 返回后仍可能被其他工作抢占，仅对此类错误重试。
+        if (attempt === 0 && error instanceof Error && error.message === `agent "${agent.id}" already has active work`) {
+          continue
+        }
+        throw error
+      }
+    }
+    return false
+  }
+  const queueSessionPromptRefresh = (sessionId) => {
+    const previous = refreshChains.get(sessionId) ?? Promise.resolve()
+    const current = previous
+      .then(() => refreshActiveSessionPrompt(sessionId))
+      .catch((error) => {
+        warn(`could not refresh system prompt for session "${sessionId}"`, error)
+        return false
+      })
+      .finally(() => {
+        if (refreshChains.get(sessionId) === current) refreshChains.delete(sessionId)
+      })
+    refreshChains.set(sessionId, current)
+  }
+  const refreshChangedSessionPrompts = () => {
+    const personas = currentStore().personas
+    for (const [sessionId, applied] of lastAppliedPersonas) {
+      const next = resolvePersona(personas, applied.subject).persona
+      if (personaFingerprint(next) !== applied.fingerprint) queueSessionPromptRefresh(sessionId)
+    }
+  }
+
   /**
    * Every write goes through here, and it is the only place the in-memory store changes: callers hand it a
    * complete next state and it persists that state before adopting it. Keeping the assignment here means a
@@ -1838,6 +2036,8 @@ export function apply(ctx, config = {}) {
     // Adopt the stamp of what we just wrote: without this, the next read sees a changed file and reloads,
     // throwing away the state this commit just installed (and the backup note that goes with it).
     storeStamp = stampOf()
+    // 持久化成功后再调度，确保刷新只能读到已经提交的人设。
+    refreshChangedSessionPrompts()
   }
 
   /** A store a caller may mutate freely; committing it is what makes the change real. */
@@ -1901,7 +2101,7 @@ export function apply(ctx, config = {}) {
       // Waterfall rule: every listener calls next() and wraps its result. Skipping it
       // would veto the whole downstream chain, which is not what a persona does.
       const downstream = await next()
-      const persona = resolvePersona(currentStore().personas, subjectOf(context?.agent)).persona
+      const persona = personaForAssembly(context?.agent)
       if (persona === undefined || persona.mode !== 'replace') return downstream
       const own = deploymentPrefix()
       if (own === undefined && !replaceGuardWarned) {
@@ -1920,7 +2120,10 @@ export function apply(ctx, config = {}) {
     ctx.effect(() => ctx.systemPrompt.section({
       name: SECTION_NAME,
       order,
-      text: (assembly) => personaTextFor(currentStore().personas, assembly?.agent, warn),
+      text: (assembly) => {
+        const persona = personaForAssembly(assembly?.agent)
+        return persona === undefined || persona.text.trim() === '' ? '' : sanitizePersona(persona.text, warn).trim()
+      },
     }), 'agent-persona.section')
     info(`section "${SECTION_NAME}" registered at order ${order} (store: ${storePath})`)
   } catch (error) {
@@ -1931,7 +2134,7 @@ export function apply(ctx, config = {}) {
   // folded into the section that preset does own. Registered through the effect, so unloading restores
   // `assemble` instead of leaving a wrapper behind.
   ctx.effect(() => bridgeCompletePrompt(ctx.systemPrompt, (context) => {
-    const persona = resolvePersona(currentStore().personas, subjectOf(context?.agent)).persona
+    const persona = personaForAssembly(context?.agent)
     if (persona === undefined || persona.text.trim() === '') return undefined
     return { text: sanitizePersona(persona.text, warn), mode: persona.mode }
   }, warn), 'agent-persona.complete-bridge')
@@ -2275,7 +2478,8 @@ export function apply(ctx, config = {}) {
     },
 
     async sessionPrompt(input) {
-      return sessionPromptFrom(ctx, input?.id, currentStore().personas)
+      const id = typeof input?.id === 'string' ? input.id : ''
+      return sessionPromptFrom(ctx, id, currentStore().personas, { appliedPersona: appliedPersonaFor(id) })
     },
 
     async history(input) {

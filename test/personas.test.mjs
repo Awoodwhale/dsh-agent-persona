@@ -35,8 +35,8 @@ const mod = await import(new URL('../lib/index.js', import.meta.url).href).catch
   }
   throw error
 })
-const { collectLastSystemPrompt, sessionPromptFrom } = mod
-const { applyCompletePersona, applyPersonaMode, backupStamp, backupStoreFile, bridgeCompletePrompt, clipMarkdown, collectSessionHistory, historyOptions, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
+const { collectLastSystemPrompt, refreshAgentPrompt, renderPromptForRefresh, sessionPromptFrom } = mod
+const { applyCompletePersona, applyPersonaMode, backupStamp, backupStoreFile, bridgeCompletePrompt, clipMarkdown, collectSessionHistory, historyOptions, collectTargets, targetSpecificity, reorderPersonas, matchTarget, PERSONA_MODES, personaFingerprint, personaTextFor, resolvePersona, sanitizePersona, takeOverClaims } = mod
 
 const WS = '/tmp/ws/web-app'
 const OTHER = '/tmp/ws/docs'
@@ -566,11 +566,275 @@ assert.equal(beat.personas, 3)
 assert.equal(beat.sectionOrder, 1)
 assert.ok(/lib\/index\.js$/.test(beat.loadedModule), 'the heartbeat names the module it loaded')
 
-// an edit on disk applies to the next assembly (stamp-based re-read)
-writeFileSync(storePath, JSON.stringify({ version: 1, personas: [{ id: 'a', name: 'im-bot', enabled: true, text: 'EDITED', targets: [T('workspace', 'exact', '/tmp/x')] }] }))
+// An edit on disk applies to the next assembly of the same session (stamp-based re-read). This is the reported
+// path: the old prompt may already be in the log, but the next assembly must resolve the newly saved persona.
+writeFileSync(storePath, JSON.stringify({ version: 1, personas: [{ id: 'a', name: 'im-bot', enabled: true, text: 'EDITED', targets: [T('sessionId', 'exact', 'im-bot-1a2b-g3')] }] }))
 const edited = new Date(Date.now() + 2000)
 utimesSync(storePath, edited, edited)
-assert.equal(section.text({ agent: { session: { header: { id: 'x', cwd: '/tmp/x' } } } }), 'EDITED')
+assert.equal(section.text({ agent: { session: { header: { id: 'im-bot-1a2b-g3', cwd: '/tmp/x' } } } }), 'EDITED', 'the same session uses the new persona on its next assembly')
+
+// A saved persona refreshes the model-visible surface through Agent maintenance. It does not create a user event
+// or call the model: the next real step consumes the projection that this operation updates.
+{
+  const events = []
+  let maintenanceCalls = 0
+  let projectedPrompt = ''
+  const refreshAgent = {
+    id: 'im-bot-1a2b-g3',
+    phase: { kind: 'idle', lastTurn: 3 },
+    session: { append: (...args) => events.push(args) },
+    model: { current: () => ({ provider: 'deepseek', model: 'test-model' }) },
+    systemPrompt: {
+      project: (prompt, input) => {
+        projectedPrompt = prompt
+        assert.deepEqual(input, { inHistory: false, startsSeries: true }, 'refresh starts a new prompt projection series')
+        return [{
+          message: { role: 'system', content: [{ type: 'text', text: prompt }] },
+          intent: { surfaceOp: 'append' },
+        }]
+      },
+    },
+    runMaintenance: async (task) => {
+      maintenanceCalls += 1
+      const maintenance = { kind: 'maintenance', lastTurn: refreshAgent.phase.lastTurn }
+      refreshAgent.phase = maintenance
+      try {
+        return await task(new AbortController().signal)
+      } finally {
+        refreshAgent.phase = { kind: 'idle', lastTurn: maintenance.lastTurn }
+      }
+    },
+  }
+  const refreshCtx = {
+    agents: { turnBoundaryOf: () => ({ lastTurn: 3, openTurnStartSeq: null }) },
+    sessions: { flush: async () => true },
+    systemPrompt: {
+      assemble: async (context) => {
+        assert.equal(context.scope, refreshAgent, 'assembly keeps the Agent scope')
+        return { sections: [{ name: 'base', text: 'BASE {{model}}' }, { name: 'persona', text: 'NEW PERSONA' }], variables: { model: 'm1' } }
+      },
+    },
+    tools: { resolve: async () => ({ dispose: () => {} }) },
+  }
+  assert.equal(renderPromptForRefresh({ sections: [{ text: 'A {{x}}' }, { text: 'B' }], variables: { x: 'X' } }), 'A X\n\nB', 'refresh rendering follows DSH interpolation')
+  assert.equal(renderPromptForRefresh({ sections: [{ text: '{{literal}}', interpolate: false }], variables: {} }), '{{literal}}', '禁用插值的 section 保留原文')
+  assert.throws(() => renderPromptForRefresh({ sections: [{ text: '{{missing}}' }], variables: {} }), /缺少 prompt variable/)
+  assert.throws(() => renderPromptForRefresh({ sections: [{ text: '{{bad name}}' }], variables: {} }), /非法 prompt variable/)
+  assert.throws(() => renderPromptForRefresh({ sections: [{ text: '{{x}}' }], variables: { x: undefined } }), /没有值/)
+  const refreshed = await refreshAgentPrompt(refreshCtx, refreshAgent)
+  assert.equal(refreshed.changed, true, 'the projection reports a changed prompt')
+  assert.equal(refreshed.prompt, 'BASE m1\n\nNEW PERSONA')
+  assert.equal(projectedPrompt, refreshed.prompt)
+  assert.equal(maintenanceCalls, 1, 'refresh uses one maintenance task')
+  assert.deepEqual(events.map(([type]) => type), ['turn/start', 'step/start', 'system/message', 'step/end', 'turn/end'], '提示词刷新写入完整可恢复的维护轮次')
+  assert.equal(events[2][0], 'system/message')
+  assert.equal(refreshAgent.phase.lastTurn, 4, '维护结束后保留最新轮次，后续对话不会重号')
+  assert.equal(events.some(([type]) => type === 'user/message'), false, 'refresh does not create a user message')
+}
+
+// 保存入口回归：先在同一会话装载旧人设，再通过真实 service 保存新人设。
+// Agent 夹具只实现生命周期与 surface，不提供模型调用路径。
+{
+  const tick = () => new Promise((resolve) => setImmediate(resolve))
+  const waitFor = async (predicate) => {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      if (predicate()) return
+      await tick()
+    }
+    assert.fail('保存后未在预期时间内完成 system prompt 刷新')
+  }
+  for (const complete of [false, true]) {
+    for (const mode of ['append', 'replace']) {
+      const refreshStore = join(mkdtempSync(join(tmpdir(), 'wsp-refresh-')), 'personas.json')
+      const id = `refresh-${complete}-${mode}`
+      const target = T(complete ? 'sessionId' : 'workspace', 'exact', complete ? id : WS)
+      writeFileSync(refreshStore, JSON.stringify({ version: 1, personas: [
+        { ...P({ id: 'old', text: 'OLD PERSONA', targets: [target] }), mode },
+      ] }))
+      const services = new Map()
+      const entries = []
+      const notices = []
+      const events = []
+      let waterfall
+      let surface = ''
+      let maintenanceCalls = 0
+      let disposedTools = 0
+      let releaseIdle
+      let idleWaits = 0
+      let otherMaintenance = false
+      let raceOnce = false
+      let projectionFails = false
+      let appendFails = false
+      let flushFails = false
+      let recordedTurn = 0
+      const agent = {
+        id,
+        status: 'idle',
+        phase: { kind: 'idle', lastTurn: 0 },
+        session: {
+          header: { id, cwd: WS },
+          append: (type, data, intent) => {
+            if (type === 'system/message' && appendFails) throw new Error('append failed')
+            if (type === 'turn/start') {
+              assert.equal(data.turn, recordedTurn + 1, '维护轮次连续递增')
+              recordedTurn = data.turn
+            }
+            events.push({ type, data, intent })
+            if (type === 'system/message') surface = data.message.content[0].text
+          },
+        },
+        model: { current: () => ({ provider: 'deepseek', model: 'test-model' }) },
+        systemPrompt: {
+          project: (prompt) => {
+            if (projectionFails) throw new Error('projection failed')
+            return prompt === surface ? [] : [{
+              message: { role: 'system', content: [{ type: 'text', text: prompt }] },
+              intent: surface === '' ? { surfaceOp: 'append' } : { surfaceOp: { op: 'replace', startSeq: 1, endSeq: 1 }, sourceEventSeqs: [1] },
+            }]
+          },
+        },
+        whenIdle: async () => {
+          if (agent.status === 'idle' && !otherMaintenance) return
+          idleWaits += 1
+          await new Promise((resolve) => { releaseIdle = resolve })
+          agent.status = 'idle'
+          otherMaintenance = false
+        },
+        runMaintenance: async (task) => {
+          if (raceOnce) {
+            raceOnce = false
+            agent.status = 'running'
+            throw new Error(`agent "${id}" already has active work`)
+          }
+          assert.equal(agent.status, 'idle', '运行中的 Agent 不会进入 maintenance')
+          maintenanceCalls += 1
+          agent.status = 'running'
+          const maintenance = { kind: 'maintenance', lastTurn: agent.phase.lastTurn }
+          agent.phase = maintenance
+          try {
+            return await task(new AbortController().signal)
+          } finally {
+            agent.phase = { kind: 'idle', lastTurn: maintenance.lastTurn }
+            agent.status = 'idle'
+          }
+        },
+      }
+      const ctx = {
+        logger: { info: () => {}, warn: (...args) => notices.push(args) },
+        reflect: { provide: (name, value) => services.set(name, value) },
+        get: (name) => services.get(name),
+        agents: { get: (sessionId) => sessionId === id ? agent : undefined, turnBoundaryOf: () => ({ lastTurn: recordedTurn, openTurnStartSeq: null }) },
+        sessions: { flush: async () => { if (flushFails) throw new Error('flush failed'); return true } },
+        effect: (fn) => fn(),
+        on: (name, handler) => { if (name === 'system-prompt/assemble') waterfall = handler },
+        tools: {
+          guard: () => () => {},
+          resolve: async () => ({ dispose: () => { disposedTools += 1 } }),
+        },
+        systemPrompt: {
+          config: { personaPrefix: 'BASE' },
+          getSectionOrder: () => 0,
+          section: (entry) => { entries.push(entry); return () => {} },
+          assemble: async (context) => {
+            const assembly = {
+              sections: [
+                { name: 'harness:identity', text: 'IDENTITY' },
+                { name: 'deployment:persona-prefix', text: 'BASE' },
+                ...entries.map((entry) => ({ ...entry, text: entry.text(context) })),
+              ],
+              variables: {},
+            }
+            const result = await waterfall(assembly, context, async () => assembly)
+            return complete ? { ...result, sections: [{ name: 'preset', text: 'PRESET' }] } : result
+          },
+        },
+      }
+      // 模拟 Cordis 的访问边界：未声明的属性 getter 会抛错，get() 提供服务查找。
+      services.set('agents', ctx.agents)
+      Object.defineProperty(ctx, 'agents', { get: () => { throw new Error('cannot get property "agents" without inject') } })
+      assert.ok(mod.inject.includes('agents'), '自动刷新必须显式声明 Agent registry 依赖')
+      mod.apply(ctx, { storePath: refreshStore })
+      const service = services.get('agentPersona')
+      assert.ok(service, '通过正式远程服务入口执行保存')
+      await refreshAgentPrompt(ctx, agent)
+      assert.ok(surface.includes('OLD PERSONA'), '已有会话 surface 包含旧人设')
+      agent.session.append('user/message', { text: '已经完成过的旧对话' })
+      agent.session.append('assistant/message', { text: '旧回复' })
+      const userEvents = events.filter((event) => event.type === 'user/message').length
+      const saved = await service.savePersona({ name: '新人设', text: 'NEW PERSONA', enabled: true, mode, targets: [target] })
+      assert.equal(saved.error, undefined)
+      const next = saved.personas.find((persona) => persona.name === '新人设')
+      assert.deepEqual(saved.personas.find((persona) => persona.id === 'old').targets, [], '相同位置从旧人设转给新人设')
+      await waitFor(() => surface.includes('NEW PERSONA') && agent.status === 'idle')
+      assert.equal(surface.includes('OLD PERSONA'), false, '保存后无需新消息即可替换旧 prompt')
+      assert.equal(surface, mode === 'replace' ? 'NEW PERSONA' : `${complete ? 'PRESET' : 'IDENTITY\n\nBASE'}\n\nNEW PERSONA`)
+      const systemEvent = events.findLast((event) => event.type === 'system/message')
+      assert.deepEqual(systemEvent.intent, { surfaceOp: { op: 'replace', startSeq: 1, endSeq: 1 }, sourceEventSeqs: [1] }, '完整保留 projection 的替换范围与来源')
+      assert.equal(events.filter((event) => event.type === 'user/message').length, userEvents, '刷新没有伪造用户消息')
+      assert.equal(systemEvent.data.turn, 2, '刷新打开下一个合法维护轮次')
+      assert.equal(systemEvent.data.step, 1, '刷新写入符合 session format v4 的正数 step')
+      assert.equal(maintenanceCalls, 2, '保存自动触发第二次 maintenance')
+
+      // 运行中保存两次，等待 idle 后必须以最后持久化的正文刷新。
+      agent.status = 'running'
+      await service.savePersona({ id: next.id, text: 'INTERMEDIATE' })
+      await waitFor(() => idleWaits === 1)
+      await service.savePersona({ id: next.id, text: 'LATEST' })
+      assert.ok(surface.includes('NEW PERSONA'), '运行中保留当前请求使用的 prompt')
+      releaseIdle()
+      await waitFor(() => surface.includes('LATEST') && agent.status === 'idle')
+      await waitFor(() => maintenanceCalls === 4 && agent.status === 'idle')
+      assert.equal(surface.includes('INTERMEDIATE'), false, '排队刷新采用最新 store')
+      assert.equal(disposedTools, maintenanceCalls, '每次刷新释放工具集')
+
+      // status 检查后 Agent 可能开始运行，maintenance 必须等待并重试。
+      raceOnce = true
+      await service.savePersona({ id: next.id, text: 'AFTER RACE' })
+      await waitFor(() => idleWaits === 2)
+      releaseIdle()
+      await waitFor(() => surface.includes('AFTER RACE') && agent.status === 'idle')
+      const following = renderPromptForRefresh(await ctx.systemPrompt.assemble({ agent }))
+      assert.equal(following, surface, '下一次正常 assembly 与已刷新的会话 surface 一致')
+      assert.deepEqual(notices, [], '保存和排队刷新均无异常告警')
+
+      otherMaintenance = true
+      await service.savePersona({ id: next.id, text: 'AFTER MAINTENANCE' })
+      await waitFor(() => idleWaits === 3)
+      assert.ok(surface.includes('AFTER RACE'), '公开状态为 idle 的 maintenance 仍需等待')
+      releaseIdle()
+      await waitFor(() => surface.includes('AFTER MAINTENANCE') && agent.status === 'idle')
+
+      projectionFails = true
+      await service.savePersona({ id: next.id, text: 'RETRY PROJECTION' })
+      await waitFor(() => notices.length === 1)
+      assert.ok(surface.includes('AFTER MAINTENANCE'), '刷新失败不会声称 surface 已更新')
+      projectionFails = false
+      await service.savePersona({ id: next.id, text: 'RETRY PROJECTION' })
+      await waitFor(() => surface.includes('RETRY PROJECTION') && agent.status === 'idle')
+      assert.equal(disposedTools, maintenanceCalls, '刷新失败也会释放工具集')
+
+      appendFails = true
+      await service.savePersona({ id: next.id, text: 'RETRY APPEND' })
+      await waitFor(() => notices.length === 2)
+      assert.deepEqual(events.slice(-4).map((event) => event.type), ['turn/start', 'step/start', 'step/end', 'turn/end'], '写入失败仍闭合维护轮次')
+      assert.equal(events.at(-1).data.reason.kind, 'error')
+      assert.equal(agent.phase.lastTurn, recordedTurn, '失败后 runtime 与日志轮次保持一致')
+      appendFails = false
+      await service.savePersona({ id: next.id, text: 'RETRY APPEND' })
+      await waitFor(() => surface.includes('RETRY APPEND') && agent.status === 'idle')
+
+      flushFails = true
+      await service.savePersona({ id: next.id, text: 'RETRY FLUSH' })
+      await waitFor(() => notices.length === 3)
+      const turnsBeforeRetry = recordedTurn
+      flushFails = false
+      await service.savePersona({ id: next.id, text: 'RETRY FLUSH' })
+      await waitFor(() => maintenanceCalls === disposedTools && agent.status === 'idle')
+      await tick()
+      assert.equal(recordedTurn, turnsBeforeRetry, '相同提示词重试持久化时不重复创建维护轮次')
+    }
+  }
+}
 
 // ── the waterfall end of replace mode, through the plugin's own listener
 writeFileSync(storePath, JSON.stringify({
@@ -629,6 +893,18 @@ assert.equal(viewPayload.persona.name, '人设甲', 'the view names the persona 
 assert.equal(viewPayload.persona.mode, 'replace', 'with its mode')
 assert.equal(viewPayload.persona.targets.length, 1, 'and its scope rules, so saving from the tab cannot drop them')
 assert.equal(viewPayload.prompt, 'LAST PROMPT', 'plus the prompt the session actually sent')
+assert.equal(viewPayload.promptSync.status, 'unknown', 'a process with no assembly snapshot labels history as unknown')
+const changedPersona = P({ id: 'pv', name: '人设甲', text: 'CHANGED', targets: [T('workspace', 'exact', WS)] })
+const pendingPayload = await sessionPromptFrom(viewCtx, 'pv1', [changedPersona], {
+  appliedPersona: { known: true, id: viewPersona.id, fingerprint: personaFingerprint(viewPersona) },
+})
+assert.equal(pendingPayload.prompt, 'LAST PROMPT', 'changing the current persona does not rewrite history')
+assert.equal(pendingPayload.promptSync.status, 'pending', 'the view reports that the next request still has to assemble the new persona')
+assert.equal(pendingPayload.promptSync.appliedPersonaId, viewPersona.id)
+const syncedPayload = await sessionPromptFrom(viewCtx, 'pv1', [changedPersona], {
+  appliedPersona: { known: true, id: changedPersona.id, fingerprint: personaFingerprint(changedPersona) },
+})
+assert.equal(syncedPayload.promptSync.status, 'synced', 'after the next assembly the current persona and applied snapshot agree')
 assert.equal((await sessionPromptFrom(viewCtx, 'pv1', [])).persona, null, 'a session nothing matches reports no persona')
 
 // ── every name the remote namespace exposes must be implemented by the service, or its
