@@ -17,6 +17,23 @@ if (-not (Get-Command dsh -ErrorAction SilentlyContinue)) {
   Write-Error "dsh not found on PATH — install DeepSeek Harness first."
 }
 
+# Resolve the moving npm tag before DSH hands the spec to pnpm. Some DSH versions reuse
+# profile metadata for a tag, so passing the resolved version keeps `latest` genuinely current.
+if ($Target -eq "dsh-agent-persona@latest") {
+  if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    Write-Error "npm not found on PATH — npm is required to resolve dsh-agent-persona@latest."
+  }
+  $Registry = (& npm config get registry 2>$null | Out-String).Trim()
+  if ([string]::IsNullOrWhiteSpace($Registry) -or $Registry -eq "undefined") {
+    $Registry = "https://registry.npmjs.org/"
+  }
+  $LatestVersion = (& npm view dsh-agent-persona@latest version --registry $Registry --prefer-online 2>$null | Out-String).Trim()
+  if ($LatestVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$') {
+    Write-Error "could not resolve dsh-agent-persona@latest from $Registry."
+  }
+  $Target = "dsh-agent-persona@$LatestVersion"
+}
+
 if ($Target -eq "." -or $Target -eq $PluginDir) {
   $Target = $PluginDir
 }

@@ -16,6 +16,25 @@ if ! command -v dsh >/dev/null 2>&1; then
   exit 1
 fi
 
+# Resolve the moving npm tag before DSH hands the spec to pnpm. Some DSH versions reuse
+# profile metadata for a tag, so passing the resolved version keeps `latest` genuinely current.
+if [ "${TARGET}" = "dsh-agent-persona@latest" ]; then
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "npm not found on PATH — npm is required to resolve dsh-agent-persona@latest." >&2
+    exit 1
+  fi
+  REGISTRY="$(npm config get registry 2>/dev/null || true)"
+  if [ -z "${REGISTRY}" ] || [ "${REGISTRY}" = "undefined" ]; then
+    REGISTRY="https://registry.npmjs.org/"
+  fi
+  LATEST_VERSION="$(npm view dsh-agent-persona@latest version --registry "${REGISTRY}" --prefer-online 2>/dev/null || true)"
+  if [[ ! "${LATEST_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
+    echo "could not resolve dsh-agent-persona@latest from ${REGISTRY}." >&2
+    exit 1
+  fi
+  TARGET="dsh-agent-persona@${LATEST_VERSION}"
+fi
+
 if [ "${TARGET}" = "." ] || [ "${TARGET}" = "${PLUGIN_DIR}" ]; then
   TARGET="${PLUGIN_DIR}"
 fi

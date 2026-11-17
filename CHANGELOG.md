@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-11-17
+
+### Fixed
+
+- **安装脚本的 `latest` 不再受 DSH profile 旧缓存影响。** Unix 和 Windows 脚本现在每次运行先从 npm registry 查询 `dsh-agent-persona@latest` 的实际版本，再把结果交给 DSH 安装；脚本仍不固定版本号，后续发布无需修改。
+
 ## [0.2.3] - 2026-11-17
 
 ### Fixed
